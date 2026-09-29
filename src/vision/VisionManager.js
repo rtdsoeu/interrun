@@ -455,27 +455,16 @@ export class VisionManager {
       }
     }
 
-    // Status + FPS badges — batched into one save/restore block
+    // Status badge (gesture / action text)
     const hasText = !!this.currentState.debugText;
-    const hasFps  = this.cvFps > 0;
-    if (hasText || hasFps) {
+    if (hasText) {
       ctx.save();
-      if (hasText) {
-        ctx.fillStyle = 'rgba(0,0,0,0.75)';
-        ctx.fillRect(6, 6, 180, 22);
-        ctx.fillStyle = '#00e5ff';
-        ctx.font = 'bold 11px Outfit, sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText(this.currentState.debugText, 12, 21);
-      }
-      if (hasFps) {
-        ctx.fillStyle = 'rgba(0,0,0,0.70)';
-        ctx.fillRect(W - 74, 6, 68, 22);
-        ctx.fillStyle = this.cvFps >= 25 ? '#00e5ff' : this.cvFps >= 15 ? '#ffd700' : '#ff3d5e';
-        ctx.font = 'bold 10px monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText(`${this.cvFps} FPS`, W - 10, 21);
-      }
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.fillRect(6, 6, 180, 22);
+      ctx.fillStyle = '#00e5ff';
+      ctx.font = 'bold 11px Outfit, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(this.currentState.debugText, 12, 21);
       ctx.restore();
     }
   }

@@ -162,7 +162,7 @@ html, body {
 
 .hud-cv-panel {
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   padding: 8px 12px;
   border-color: rgba(0,229,255,0.35);
 }
@@ -170,6 +170,13 @@ html, body {
   font-size: 16px;
   font-weight: 800;
   color: #00e5ff;
+}
+.hud-cv-ms {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: monospace;
+  color: rgba(0,229,255,0.85);
+  margin-left: 1px;
 }
 
 .hud-label {
@@ -564,6 +571,9 @@ html, body {
   }
   .hud-fps-num, .hud-cv-num {
     font-size: 12px;
+  }
+  .hud-cv-ms {
+    font-size: 10px;
   }
   .hud-fps-label {
     display: none;

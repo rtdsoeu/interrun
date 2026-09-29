@@ -73,6 +73,7 @@ export class HUD {
     const skinOpen     = !this.elSkinModal?.classList.contains('hidden');
     const settingsOpen = !this.elSettingsModal?.classList.contains('hidden');
     const pipVisible   = !this.elWebcamPip?.classList.contains('hidden');
+    const cvVisible    = this.elCvPanel && this.elCvPanel.style.display !== 'none';
     const selectedStage = this._selectedDebugStage;
     const selectedSpeed = this._selectedDebugSpeed;
 
@@ -87,6 +88,7 @@ export class HUD {
     if (skinOpen)     this.elSkinModal?.classList.remove('hidden');
     if (settingsOpen) this.elSettingsModal?.classList.remove('hidden');
     if (pipVisible)   this.elWebcamPip?.classList.remove('hidden');
+    if (cvVisible && this.elCvPanel) this.elCvPanel.style.display = 'inline-flex';
 
     if (!isMenuVisible) this.elMenu?.classList.add('hidden');
     if (isHudVisible) this.elHud?.classList.remove('hidden');
@@ -107,6 +109,7 @@ export class HUD {
     this.elStageBadge   = document.getElementById('stage-badge');
     this.elFps          = document.getElementById('hud-fps');
     this.elCvFps        = document.getElementById('hud-cv-fps');
+    this.elCvMs         = document.getElementById('hud-cv-ms');
     this.elCvPanel      = document.getElementById('hud-cv-panel');
     this.elControlHint  = document.getElementById('control-hint');
     this.elSpeedBar     = document.getElementById('speed-bar-fill');
@@ -130,7 +133,6 @@ export class HUD {
     this.elWebcamPip    = document.getElementById('webcam-pip');
     this.elWebcamCanvas = document.getElementById('webcam-canvas');
     this.elWebcamStatus   = document.getElementById('webcam-status');
-    this.elWebcamFpsBadge = document.getElementById('webcam-fps-badge');
 
     this.elOptLock = document.getElementById('debug-opt-lock');
     this.elOptGod  = document.getElementById('debug-opt-god');
@@ -510,18 +512,15 @@ export class HUD {
       this.elCvFps.textContent = fps;
       this.elCvFps.style.color = fps >= 25 ? '#00e5ff' : fps >= 15 ? '#ffd700' : '#ff3d5e';
     }
-    if (this.elWebcamFpsBadge) {
-      this.elWebcamFpsBadge.textContent = latency ? `${fps} FPS • ${latency}ms` : `${fps} FPS`;
-      this.elWebcamFpsBadge.style.color = fps >= 25 ? '#00e5ff' : fps >= 15 ? '#ffd700' : '#ff3d5e';
+    if (this.elCvMs) {
+      this.elCvMs.textContent = latency ? `• ${latency}ms` : '';
+      this.elCvMs.style.color = latency <= 45 ? '#00e5ff' : latency <= 75 ? '#ffd700' : '#ff3d5e';
     }
   }
 
   showCvFps(show = true) {
     if (this.elCvPanel) {
-      this.elCvPanel.style.display = show ? 'flex' : 'none';
-    }
-    if (this.elWebcamFpsBadge) {
-      this.elWebcamFpsBadge.style.display = show ? 'block' : 'none';
+      this.elCvPanel.style.display = show ? 'inline-flex' : 'none';
     }
   }
 

@@ -32,6 +32,8 @@ export function getHUDHtml(t, i18n, state = {}) {
             <div class="hud-panel hud-cv-panel" id="hud-cv-panel" style="display:none;">
               <span style="font-size:13px;">👁️</span>
               <span id="hud-cv-fps" class="hud-cv-num">--</span>
+              <span class="hud-fps-label">FPS</span>
+              <span id="hud-cv-ms" class="hud-cv-ms"></span>
               <span class="hud-fps-label">CV</span>
             </div>
           </div>
@@ -96,7 +98,6 @@ export function getHUDHtml(t, i18n, state = {}) {
       <!-- Webcam PIP -->
       <div id="webcam-pip" class="hidden" style="position:fixed; bottom:20px; right:20px; width:200px; height:150px; background:rgba(0,0,0,0.85); border:1px solid rgba(0,229,255,0.4); border-radius:12px; overflow:hidden; z-index:40; pointer-events:all; box-shadow:0 8px 32px rgba(0,0,0,0.6);">
         <canvas id="webcam-canvas" style="width:100%; height:100%; object-fit:cover; display:block;"></canvas>
-        <div id="webcam-fps-badge" style="position:absolute; top:6px; right:6px; font-size:10px; font-weight:800; color:#00e5ff; background:rgba(0,0,0,0.7); border:1px solid rgba(0,229,255,0.4); border-radius:6px; padding:2px 6px; font-family:monospace; pointer-events:none;">-- FPS</div>
         <div id="webcam-status" style="position:absolute; bottom:4px; left:6px; right:6px; font-size:9px; font-weight:700; color:#00e5ff; text-transform:uppercase; letter-spacing:1px; text-shadow:0 1px 3px #000; text-align:center;" data-i18n="hud.cam.active">${t('hud.cam.active')}</div>
       </div>
 
