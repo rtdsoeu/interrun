@@ -64,6 +64,23 @@ describe('MusicPlayer', () => {
     expect(player.currentTrackTitle).toBe('Bgm');
   });
 
+  it('loads tracks from the static manifest using base-relative URLs', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (url) => {
+      requests.push(url);
+      return { ok: true, json: async () => ['bgm.wav'] };
+    };
+
+    try {
+      await player.refreshPlaylist();
+      expect(requests).toEqual([`${import.meta.env.BASE_URL}audio/manifest.json`]);
+      expect(player.playlist).toEqual([`${import.meta.env.BASE_URL}audio/bgm.wav`]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('maintains equal volume parity between menu, game, and transition', () => {
     player.volume = 0.8;
 

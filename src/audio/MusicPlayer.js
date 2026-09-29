@@ -10,8 +10,11 @@
  * - Persistent volume, mute, and track state in localStorage.
  */
 
+const BASE_URL = import.meta.env?.BASE_URL || './';
+const DEFAULT_TRACK_URL = `${BASE_URL}audio/bgm.wav`;
+
 export class MusicPlayer {
-  constructor(defaultSrc = '/audio/bgm.wav') {
+  constructor(defaultSrc = DEFAULT_TRACK_URL) {
     // Playlist state
     this.playlist = [defaultSrc];
     this.trackIndex = 0;
@@ -76,7 +79,7 @@ export class MusicPlayer {
   }
 
   get currentTrackUrl() {
-    return this.playlist[this.trackIndex] || this.playlist[0] || '/audio/bgm.wav';
+    return this.playlist[this.trackIndex] || this.playlist[0] || DEFAULT_TRACK_URL;
   }
 
   get currentTrackTitle() {
@@ -105,17 +108,9 @@ export class MusicPlayer {
         }
       });
 
-      // Error fallback
       this._audio.addEventListener('error', () => {
         if (this.playlist.length > 1) {
           this.nextTrack();
-        } else if (this.currentTrackUrl.endsWith('.wav')) {
-          const fallback = '/audio/bgm.mp3';
-          this.playlist[0] = fallback;
-          this._audio.src = fallback;
-          if (this.isPlaying && !this.muted) {
-            this._audio.play().catch(() => {});
-          }
         }
       });
     } catch (e) {
@@ -124,20 +119,17 @@ export class MusicPlayer {
   }
 
   /**
-   * Refreshes the playlist from live API or static manifest.json.
+  * Refreshes the playlist from the static manifest.json.
    */
   async refreshPlaylist() {
     if (typeof fetch === 'undefined') return;
     try {
-      let res = await fetch('/api/audio-tracks').catch(() => null);
-      if (!res || !res.ok) {
-        res = await fetch('/audio/manifest.json').catch(() => null);
-      }
+      const res = await fetch(`${BASE_URL}audio/manifest.json`).catch(() => null);
       if (res && res.ok) {
         const files = await res.json();
         if (Array.isArray(files) && files.length > 0) {
           const prevUrl = this.currentTrackUrl;
-          this.playlist = files;
+          this.playlist = files.map(file => `${BASE_URL}audio/${file}`);
           const existingIdx = this.playlist.indexOf(prevUrl);
           if (existingIdx !== -1) {
             this.trackIndex = existingIdx;

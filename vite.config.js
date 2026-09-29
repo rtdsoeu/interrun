@@ -8,7 +8,7 @@ function getAudioFiles() {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return fs.readdirSync(dir)
     .filter(f => /\.(wav|mp3|ogg|m4a|aac|webm)$/i.test(f))
-    .map(f => `/audio/${f}`);
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function updateManifest() {
