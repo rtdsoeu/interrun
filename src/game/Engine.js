@@ -48,12 +48,19 @@ export class Engine {
 
     // 1. Audio, computer vision, and skin initialisation
     this.soundFx = new SoundFx();
+    this.soundFx.startBGM('menu');
     this.audioManager = new AudioManager();
     this.skinManager = new SkinManager();
     this.visionManager = new VisionManager();
     // Start background model preload while the menu is visible — eliminates the
     // loading delay when the player first reaches a CV stage (Stage 2+)
     this.visionManager.preloadModels();
+
+    // Display settings (Viewport Frame & 3D Render Scale)
+    const savedFrame = typeof localStorage !== 'undefined' ? localStorage.getItem('interrun_viewport_frame') : null;
+    const savedScale = typeof localStorage !== 'undefined' ? localStorage.getItem('interrun_render_scale') : null;
+    this.viewportFrame = savedFrame || 'full';
+    this.renderScale = savedScale ? parseFloat(savedScale) : 1.0;
 
     // 2. Initialize Three.js
     this._initThree();
@@ -100,6 +107,14 @@ export class Engine {
     this._applySceneTheme(this.skinManager.activeTheme);
     this.runner.applySkin(this.skinManager.activeCharSkin);
 
+    // Apply viewport frame & observe container size
+    this.setViewportFrame(this.viewportFrame);
+    const container = typeof document !== 'undefined' ? document.getElementById('game-container') : null;
+    if (container && typeof ResizeObserver !== 'undefined') {
+      this._resizeObserver = new ResizeObserver(() => this._handleResize());
+      this._resizeObserver.observe(container);
+    }
+
     // Start render loop
     this._animate();
   }
@@ -107,8 +122,9 @@ export class Engine {
   _initThree() {
     this.scene = new THREE.Scene();
 
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const container = typeof document !== 'undefined' ? document.getElementById('game-container') : null;
+    const w = container?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1280);
+    const h = container?.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 720);
 
     this.camera = new THREE.PerspectiveCamera(62, w / h, 0.1, 300);
 
@@ -117,8 +133,9 @@ export class Engine {
       antialias: true,
       powerPreference: 'high-performance'
     });
-    this.renderer.setSize(w, h);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setSize(w, h, false);
+    const dpr = Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2) * this.renderScale;
+    this.renderer.setPixelRatio(dpr);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -209,6 +226,7 @@ export class Engine {
 
     this.scoreSystem.setTransitioning(true);
     this.obstacleManager.setTransitioning(true);
+    this.soundFx?.setBgmMode('transition');
 
     // Switch model & controller immediately so cold start / shader compilation
     // finishes during the safe runway, before obstacles resume.
@@ -275,8 +293,18 @@ export class Engine {
 
     this.hud.onUpdateAudioSettings = (settings) => {
       if (settings.sfxVolume !== undefined) this.soundFx.setSfxVolume(settings.sfxVolume);
+      if (settings.bgmVolume !== undefined) this.soundFx.setBgmVolume(settings.bgmVolume);
       if (settings.muted !== undefined) this.soundFx.setMuted(settings.muted);
       this.hud.updateSoundState(this.soundFx.muted);
+    };
+
+    this.hud.onApplyDisplaySettings = (settings) => {
+      if (settings.viewportFrame !== undefined) {
+        this.setViewportFrame(settings.viewportFrame);
+      }
+      if (settings.renderScale !== undefined) {
+        this.setRenderScale(settings.renderScale);
+      }
     };
   }
 
@@ -338,6 +366,7 @@ export class Engine {
     this.scoreSystem.setTransitioning(false);
     this.scoreSystem.stop();
     this.controlManager.setStage(-1);
+    this.soundFx?.setBgmMode('menu');
     this.hud.showMenu();
   }
 
@@ -398,11 +427,38 @@ export class Engine {
   }
 
   _handleResize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const container = typeof document !== 'undefined' ? (document.getElementById('game-container') || document.body) : null;
+    const w = container?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1280);
+    const h = container?.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 720);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h);
+    this.renderer.setSize(w, h, false);
+  }
+
+  setViewportFrame(frame) {
+    this.viewportFrame = frame;
+    const container = typeof document !== 'undefined' ? document.getElementById('game-container') : null;
+    if (container) {
+      container.classList.remove('frame-full', 'frame-16-9', 'frame-mobile', 'frame-4-3');
+      container.classList.add(`frame-${frame}`);
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('interrun_viewport_frame', frame);
+    }
+    requestAnimationFrame(() => this._handleResize());
+    setTimeout(() => this._handleResize(), 320);
+  }
+
+  setRenderScale(scale) {
+    this.renderScale = scale;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('interrun_render_scale', String(scale));
+    }
+    if (this.renderer) {
+      const dpr = Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2) * scale;
+      this.renderer.setPixelRatio(dpr);
+    }
+    this._handleResize();
   }
 
   startGame(stage = 0, isLocked = false, isGodMode = false, speedMultiplier = 1.0) {
@@ -424,6 +480,8 @@ export class Engine {
     this._applyStageSwitch(stage);
 
     this.soundFx?.unlock();
+    this.soundFx?.startBGM('game');
+    this.soundFx?.setBgmMode('game');
 
     this.cameraRig.reset(this.runner.pos);
 
@@ -439,6 +497,7 @@ export class Engine {
     this.scoreSystem.setTransitioning(false);
     this.scoreSystem.stop();
     this.controlManager.setStage(-1);
+    this.soundFx?.setBgmMode('dead');
 
     this.runner.crash();
     this.cameraRig.addTrauma(0.9);
@@ -503,6 +562,7 @@ export class Engine {
           this.hud.hideTransitionCountdown();
           this.obstacleManager.setTransitioning(false);
           this.scoreSystem.setTransitioning(false);
+          this.soundFx?.setBgmMode('game');
         }
       }
 

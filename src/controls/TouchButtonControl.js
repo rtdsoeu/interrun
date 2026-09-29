@@ -34,7 +34,7 @@ export class TouchButtonControl extends BaseControl {
     this._overlay = document.createElement('div');
     this._overlay.id = 'touch-dpad';
     Object.assign(this._overlay.style, {
-      position: 'fixed',
+      position: 'absolute',
       bottom: '0',
       left: '0',
       right: '0',
@@ -59,7 +59,8 @@ export class TouchButtonControl extends BaseControl {
       </div>
     `;
 
-    document.body.appendChild(this._overlay);
+    const target = (typeof document !== 'undefined' ? (document.getElementById('ui-root') || document.body) : null);
+    target?.appendChild(this._overlay);
 
     // Bind action callbacks
     this._bindBtn('dpad-left',  () => this._push({ laneDelta: -1 }));

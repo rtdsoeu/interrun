@@ -27,6 +27,7 @@ export class HUD {
     this.onApplySettings = null;
     this.onToggleSound = null;
     this.onUpdateAudioSettings = null;
+    this.onApplyDisplaySettings = null;
 
     this._isGodMode = false;
     this._isStageLocked = false;
@@ -38,7 +39,10 @@ export class HUD {
       resolution: this.visionManager?.settings?.resolution || (typeof localStorage !== 'undefined' ? localStorage.getItem('interrun_cv_res') : null) || 'balanced',
       targetFps: this.visionManager?.settings?.targetFps || (typeof localStorage !== 'undefined' ? parseInt(localStorage.getItem('interrun_cv_fps') || '30', 10) : 30) || 30,
       pipMode: this.visionManager?.settings?.pipMode || (typeof localStorage !== 'undefined' ? localStorage.getItem('interrun_pip_mode') : null) || 'full',
-      sfxVolume: this.soundFx?.sfxVolume ?? (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_sfx_vol') || '0.8') : 0.8)
+      sfxVolume: this.soundFx?.sfxVolume ?? (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_sfx_vol') || '0.8') : 0.8),
+      bgmVolume: this.soundFx?.bgmVolume ?? (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_bgm_vol') || '0.7') : 0.7),
+      viewportFrame: (typeof localStorage !== 'undefined' ? localStorage.getItem('interrun_viewport_frame') : null) || 'full',
+      renderScale: (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_render_scale') || '1.0') : 1.0)
     };
 
     this._render();
@@ -57,7 +61,8 @@ export class HUD {
       soundMuted: this.soundFx?.muted,
       selectedStage: this._selectedDebugStage,
       selectedSpeed: this._selectedDebugSpeed,
-      settings: this._settings
+      settings: this._settings,
+      currentTrackTitle: this.soundFx?.currentTrackTitle || 'Bgm'
     });
   }
 
@@ -284,7 +289,55 @@ export class HUD {
           bgmVolume: this._settings.bgmVolume
         });
       }
+      if (this.onApplyDisplaySettings) {
+        this.onApplyDisplaySettings({
+          viewportFrame: this._settings.viewportFrame,
+          renderScale: this._settings.renderScale
+        });
+      }
     });
+
+    // Audio Sliders
+    const sliderBgm = document.getElementById('slider-bgm-vol');
+    const valBgm = document.getElementById('settings-bgm-val');
+    if (sliderBgm) {
+      sliderBgm.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        this._settings.bgmVolume = val;
+        if (valBgm) valBgm.textContent = `${Math.round(val * 100)}%`;
+        if (this.onUpdateAudioSettings) {
+          this.onUpdateAudioSettings({ bgmVolume: val });
+        }
+      });
+    }
+
+    const sliderSfx = document.getElementById('slider-sfx-vol');
+    const valSfx = document.getElementById('settings-sfx-val');
+    if (sliderSfx) {
+      sliderSfx.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        this._settings.sfxVolume = val;
+        if (valSfx) valSfx.textContent = `${Math.round(val * 100)}%`;
+        if (this.onUpdateAudioSettings) {
+          this.onUpdateAudioSettings({ sfxVolume: val });
+        }
+      });
+    }
+
+    // Track Playlist Switcher
+    bindFastTap('btn-track-prev', () => {
+      this.soundFx?.prevTrack();
+    });
+    bindFastTap('btn-track-next', () => {
+      this.soundFx?.nextTrack();
+    });
+
+    if (this.soundFx?.music) {
+      this.soundFx.music.onTrackChange = (title) => {
+        const elTrack = document.getElementById('settings-current-track-name');
+        if (elTrack) elTrack.textContent = title;
+      };
+    }
 
     // Settings options buttons
     document.querySelectorAll('.setting-opt-btn').forEach(btn => {
@@ -294,11 +347,22 @@ export class HUD {
         if (group && val) {
           if (group === 'targetFps') {
             this._settings[group] = parseInt(val, 10);
-          } else if (group === 'sfxVolume') {
+          } else if (group === 'sfxVolume' || group === 'bgmVolume') {
             const num = parseFloat(val);
             this._settings[group] = num;
             if (this.onUpdateAudioSettings) {
               this.onUpdateAudioSettings({ [group]: num });
+            }
+          } else if (group === 'renderScale') {
+            const num = parseFloat(val);
+            this._settings[group] = num;
+            if (this.onApplyDisplaySettings) {
+              this.onApplyDisplaySettings({ renderScale: num });
+            }
+          } else if (group === 'viewportFrame') {
+            this._settings[group] = val;
+            if (this.onApplyDisplaySettings) {
+              this.onApplyDisplaySettings({ viewportFrame: val });
             }
           } else {
             this._settings[group] = val;
@@ -358,8 +422,25 @@ export class HUD {
     }
     if (this.soundFx) {
       this._settings.sfxVolume = this.soundFx.sfxVolume;
+      this._settings.bgmVolume = this.soundFx.bgmVolume;
     }
     this.elSettingsModal?.classList.remove('hidden');
+
+    const sliderBgm = document.getElementById('slider-bgm-vol');
+    const valBgm = document.getElementById('settings-bgm-val');
+    if (sliderBgm) sliderBgm.value = this._settings.bgmVolume;
+    if (valBgm) valBgm.textContent = `${Math.round(this._settings.bgmVolume * 100)}%`;
+
+    const sliderSfx = document.getElementById('slider-sfx-vol');
+    const valSfx = document.getElementById('settings-sfx-val');
+    if (sliderSfx) sliderSfx.value = this._settings.sfxVolume;
+    if (valSfx) valSfx.textContent = `${Math.round(this._settings.sfxVolume * 100)}%`;
+
+    const elTrack = document.getElementById('settings-current-track-name');
+    if (elTrack && this.soundFx) {
+      elTrack.textContent = this.soundFx.currentTrackTitle;
+    }
+
     this._updateSettingsButtons();
   }
 
@@ -377,10 +458,10 @@ export class HUD {
       const group = btn.getAttribute('data-group');
       const val = btn.getAttribute('data-val');
       let isSelected = false;
-      if (group === 'sfxVolume') {
+      if (group === 'sfxVolume' || group === 'bgmVolume' || group === 'renderScale') {
         const numVal = parseFloat(val);
         const curVal = this._settings[group];
-        isSelected = Math.abs(numVal - curVal) < 0.18;
+        isSelected = Math.abs(numVal - curVal) < 0.05;
       } else {
         isSelected = (val === String(this._settings[group]));
       }

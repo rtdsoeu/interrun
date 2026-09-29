@@ -4,6 +4,8 @@
  * - Manages volume and mute routing.
  */
 
+import { MusicPlayer } from './MusicPlayer.js';
+
 export class SoundFx {
   constructor() {
     this._ctx = null;
@@ -18,15 +20,20 @@ export class SoundFx {
     this.sfxVolume = savedSfx !== null ? parseFloat(savedSfx) : 0.8;
     this.volume = this.sfxVolume;
 
+    // High-performance background music player (native HTML5 Audio)
+    this.music = new MusicPlayer();
+
     // Auto-bind one-time interaction unlock listeners
     this._bindUnlockListeners();
   }
 
   get bgmVolume() {
-    return 0;
+    return this.music.volume;
   }
 
-  set bgmVolume(_val) {}
+  set bgmVolume(val) {
+    this.music.setVolume(val);
+  }
 
   _bindUnlockListeners() {
     if (typeof window === 'undefined') return;
@@ -87,6 +94,7 @@ export class SoundFx {
     if (this._ctx && this._ctx.state === 'suspended') {
       this._ctx.resume().catch(() => {});
     }
+    this.music?.unlock();
   }
 
   init() {
@@ -102,10 +110,13 @@ export class SoundFx {
     this._updateGains();
   }
 
-  setBgmVolume(_vol) {}
+  setBgmVolume(vol) {
+    this.music.setVolume(vol);
+  }
 
   setVolume(vol) {
     this.setSfxVolume(vol);
+    this.setBgmVolume(vol);
   }
 
   setMuted(muted) {
@@ -114,6 +125,7 @@ export class SoundFx {
       localStorage.setItem('interrun_muted', String(this.muted));
     }
     this._updateGains();
+    this.music.setMuted(this.muted);
   }
 
   toggleMute() {
@@ -122,15 +134,44 @@ export class SoundFx {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // BGM / Music Stubs (Music removed)
+  // BGM / Music Delegation
   // ─────────────────────────────────────────────────────────────────────────
 
-  startBGM() {}
-  stopBGM() {}
-  pauseBGM() {}
-  resumeBGM() {}
-  setBgmMode() {}
-  setRadioStation() {}
+  startBGM(mode = 'game') {
+    this.music.play(mode);
+  }
+
+  stopBGM() {
+    this.music.stop();
+  }
+
+  pauseBGM() {
+    this.music.pause();
+  }
+
+  resumeBGM() {
+    this.music.play();
+  }
+
+  setBgmMode(mode) {
+    this.music.setMode(mode);
+  }
+
+  nextTrack() {
+    this.music.nextTrack();
+  }
+
+  prevTrack() {
+    this.music.prevTrack();
+  }
+
+  get currentTrackTitle() {
+    return this.music.currentTrackTitle;
+  }
+
+  get playlist() {
+    return this.music.playlist;
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // SOUND EFFECTS

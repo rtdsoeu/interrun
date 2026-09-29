@@ -4,6 +4,7 @@
  */
 export function getHUDHtml(t, i18n, state = {}) {
   const isMuted = !!state.soundMuted;
+  const settings = state.settings || {};
 
   return `
     <!-- In-Game HUD -->
@@ -15,7 +16,7 @@ export function getHUDHtml(t, i18n, state = {}) {
         </div>
 
         <div id="hud-top-right">
-          <!-- Stats: coins, stage, fps -->
+          <!-- Stats: coins, stage -->
           <div id="hud-stats-group">
             <div class="hud-panel hud-coin-panel">
               <span class="hud-coin-icon">🪙</span>
@@ -23,19 +24,6 @@ export function getHUDHtml(t, i18n, state = {}) {
             </div>
 
             <div id="stage-badge">${t('stage.0.badge')}</div>
-
-            <div class="hud-panel hud-fps-panel">
-              <span id="hud-fps" class="hud-fps-num">60</span>
-              <span class="hud-fps-label">FPS</span>
-            </div>
-
-            <div class="hud-panel hud-cv-panel" id="hud-cv-panel" style="display:none;">
-              <span style="font-size:13px;">👁️</span>
-              <span id="hud-cv-fps" class="hud-cv-num">--</span>
-              <span class="hud-fps-label">FPS</span>
-              <span id="hud-cv-ms" class="hud-cv-ms"></span>
-              <span class="hud-fps-label">CV</span>
-            </div>
           </div>
 
           <!-- Action buttons -->
@@ -95,14 +83,30 @@ export function getHUDHtml(t, i18n, state = {}) {
 
       <div id="control-hint" class="visible">${t('stage.0.hint')}</div>
 
+      <!-- Bottom-Left Metrics: Game FPS & Vision Worker CV -->
+      <div id="hud-bottom-left">
+        <div class="hud-panel hud-fps-panel">
+          <span id="hud-fps" class="hud-fps-num">60</span>
+          <span class="hud-fps-label">FPS</span>
+        </div>
+
+        <div class="hud-panel hud-cv-panel" id="hud-cv-panel" style="display:none;">
+          <span style="font-size:13px;">👁️</span>
+          <span id="hud-cv-fps" class="hud-cv-num">--</span>
+          <span class="hud-fps-label">FPS</span>
+          <span id="hud-cv-ms" class="hud-cv-ms"></span>
+          <span class="hud-fps-label">CV</span>
+        </div>
+      </div>
+
       <!-- Webcam PIP -->
-      <div id="webcam-pip" class="hidden" style="position:fixed; bottom:20px; right:20px; width:200px; height:150px; background:rgba(0,0,0,0.85); border:1px solid rgba(0,229,255,0.4); border-radius:12px; overflow:hidden; z-index:40; pointer-events:all; box-shadow:0 8px 32px rgba(0,0,0,0.6);">
+      <div id="webcam-pip" class="hidden" style="position:absolute; bottom:20px; right:20px; width:200px; height:150px; background:rgba(0,0,0,0.85); border:1px solid rgba(0,229,255,0.4); border-radius:12px; overflow:hidden; z-index:40; pointer-events:all; box-shadow:0 8px 32px rgba(0,0,0,0.6);">
         <canvas id="webcam-canvas" style="width:100%; height:100%; object-fit:cover; display:block;"></canvas>
         <div id="webcam-status" style="position:absolute; bottom:4px; left:6px; right:6px; font-size:9px; font-weight:700; color:#00e5ff; text-transform:uppercase; letter-spacing:1px; text-shadow:0 1px 3px #000; text-align:center;" data-i18n="hud.cam.active">${t('hud.cam.active')}</div>
       </div>
 
       <!-- Stage Transition Countdown Banner -->
-      <div id="stage-countdown-banner" class="hidden" style="position:fixed; top:72px; left:50%; transform:translateX(-50%); z-index:50; pointer-events:none; display:flex; flex-direction:column; align-items:center;">
+      <div id="stage-countdown-banner" class="hidden" style="position:absolute; top:72px; left:50%; transform:translateX(-50%); z-index:50; pointer-events:none; display:flex; flex-direction:column; align-items:center;">
         <div style="background:rgba(10,15,30,0.94); border:1px solid rgba(0,229,255,0.6); box-shadow:0 8px 32px rgba(0,0,0,0.8), 0 0 24px rgba(0,229,255,0.3); border-radius:18px; padding:10px 24px; display:flex; align-items:center; gap:16px; backdrop-filter:blur(12px);">
           <div style="position:relative; width:46px; height:46px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
             <svg style="position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg);" viewBox="0 0 36 36">
@@ -174,7 +178,7 @@ export function getHUDHtml(t, i18n, state = {}) {
     </div>
 
     <!-- Wardrobe & Themes -->
-    <div id="skin-modal" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(16px); z-index:100; display:flex; align-items:center; justify-content:center; pointer-events:all;">
+    <div id="skin-modal" class="hidden" style="position:absolute; inset:0; border-radius:inherit; background:rgba(0,0,0,0.85); backdrop-filter:blur(16px); z-index:100; display:flex; align-items:center; justify-content:center; pointer-events:all;">
       <div style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:20px; padding:32px; width:90%; max-width:580px; display:flex; flex-direction:column; gap:22px; color:#fff;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <h2 style="font-size:24px; font-weight:800; letter-spacing:-0.5px;" data-i18n="skins.title">${t('skins.title')}</h2>
@@ -207,7 +211,7 @@ export function getHUDHtml(t, i18n, state = {}) {
     </div>
 
     <!-- Debug Modal -->
-    <div id="debug-modal" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(16px); z-index:110; display:flex; align-items:center; justify-content:center; pointer-events:all;">
+    <div id="debug-modal" class="hidden" style="position:absolute; inset:0; border-radius:inherit; background:rgba(0,0,0,0.85); backdrop-filter:blur(16px); z-index:110; display:flex; align-items:center; justify-content:center; pointer-events:all;">
       <div style="background:rgba(20,24,36,0.95); border:1px solid rgba(0,229,255,0.3); box-shadow:0 16px 48px rgba(0,0,0,0.8), 0 0 30px rgba(0,229,255,0.15); border-radius:20px; padding:28px; width:92%; max-width:520px; display:flex; flex-direction:column; gap:18px; color:#fff;">
 
         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -317,7 +321,7 @@ export function getHUDHtml(t, i18n, state = {}) {
     </div>
 
     <!-- Settings Modal -->
-    <div id="settings-modal" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(16px); z-index:115; display:flex; align-items:center; justify-content:center; pointer-events:all;">
+    <div id="settings-modal" class="hidden" style="position:absolute; inset:0; border-radius:inherit; background:rgba(0,0,0,0.85); backdrop-filter:blur(16px); z-index:115; display:flex; align-items:center; justify-content:center; pointer-events:all;">
       <div style="background:rgba(20,24,36,0.95); border:1px solid rgba(0,229,255,0.3); box-shadow:0 16px 48px rgba(0,0,0,0.8), 0 0 30px rgba(0,229,255,0.15); border-radius:20px; padding:28px; width:92%; max-width:540px; display:flex; flex-direction:column; gap:18px; color:#fff;">
 
         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -366,25 +370,77 @@ export function getHUDHtml(t, i18n, state = {}) {
           </div>
         </div>
 
-        <!-- Sound Effects (SFX) -->
+        <!-- Viewport Frame / Screen Ratio -->
         <div>
-          <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#ff6b35; margin-bottom:8px;" data-i18n="settings.sfx_vol">${t('settings.sfx_vol')}</div>
+          <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#00e5ff; margin-bottom:8px;" data-i18n="settings.viewport_frame">${t('settings.viewport_frame')}</div>
+          <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:6px;" id="settings-frame-group">
+            <button class="setting-opt-btn btn-ghost" data-group="viewportFrame" data-val="full" style="padding:10px 4px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
+              <div style="font-weight:700;" data-i18n="settings.frame.full">${t('settings.frame.full')}</div>
+            </button>
+            <button class="setting-opt-btn btn-ghost" data-group="viewportFrame" data-val="16-9" style="padding:10px 4px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
+              <div style="font-weight:700;" data-i18n="settings.frame.16-9">${t('settings.frame.16-9')}</div>
+            </button>
+            <button class="setting-opt-btn btn-ghost" data-group="viewportFrame" data-val="mobile" style="padding:10px 4px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
+              <div style="font-weight:700;" data-i18n="settings.frame.mobile">${t('settings.frame.mobile')}</div>
+            </button>
+            <button class="setting-opt-btn btn-ghost" data-group="viewportFrame" data-val="4-3" style="padding:10px 4px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
+              <div style="font-weight:700;" data-i18n="settings.frame.4-3">${t('settings.frame.4-3')}</div>
+            </button>
+          </div>
+        </div>
 
-          <!-- SFX Volume -->
-          <div>
-            <div style="font-size:11px; color:rgba(255,255,255,0.7); margin-bottom:4px;" data-i18n="settings.sfx_vol">${t('settings.sfx_vol')}</div>
-            <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:6px;" id="settings-sfx-group">
-              <button class="setting-opt-btn btn-ghost" data-group="sfxVolume" data-val="0" style="padding:8px 4px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
-                <div style="font-weight:700;" data-i18n="settings.vol.off">${t('settings.vol.off')}</div>
+        <!-- 3D Graphics Render Scale -->
+        <div>
+          <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#a89cff; margin-bottom:8px;" data-i18n="settings.render_scale">${t('settings.render_scale')}</div>
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px;" id="settings-scale-group">
+            <button class="setting-opt-btn btn-ghost" data-group="renderScale" data-val="1.0" style="padding:10px 6px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
+              <div style="font-weight:700;" data-i18n="settings.scale.100">${t('settings.scale.100')}</div>
+            </button>
+            <button class="setting-opt-btn btn-ghost" data-group="renderScale" data-val="0.75" style="padding:10px 6px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
+              <div style="font-weight:700;" data-i18n="settings.scale.75">${t('settings.scale.75')}</div>
+            </button>
+            <button class="setting-opt-btn btn-ghost" data-group="renderScale" data-val="0.5" style="padding:10px 6px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
+              <div style="font-weight:700;" data-i18n="settings.scale.50">${t('settings.scale.50')}</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Sound & Music -->
+        <div>
+          <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#ff6b35; margin-bottom:10px;" data-i18n="settings.audio">${t('settings.audio')}</div>
+
+          <!-- BGM Volume Slider -->
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:10px 14px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <span style="font-size:11px; font-weight:600; color:rgba(255,255,255,0.85);" data-i18n="settings.bgm_vol">${t('settings.bgm_vol')}</span>
+              <span id="settings-bgm-val" style="font-size:12px; font-weight:700; color:#00e5ff;">${Math.round((settings.bgmVolume ?? 0.7) * 100)}%</span>
+            </div>
+            <input type="range" id="slider-bgm-vol" class="cyber-slider" min="0" max="1" step="0.01" value="${settings.bgmVolume ?? 0.7}">
+          </div>
+
+          <!-- SFX Volume Slider -->
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:10px 14px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <span style="font-size:11px; font-weight:600; color:rgba(255,255,255,0.85);" data-i18n="settings.sfx_vol">${t('settings.sfx_vol')}</span>
+              <span id="settings-sfx-val" style="font-size:12px; font-weight:700; color:#ff6b35;">${Math.round((settings.sfxVolume ?? 0.8) * 100)}%</span>
+            </div>
+            <input type="range" id="slider-sfx-vol" class="cyber-slider cyber-slider-sfx" min="0" max="1" step="0.01" value="${settings.sfxVolume ?? 0.8}">
+          </div>
+
+          <!-- Track Playlist & Switcher -->
+          <div style="background:rgba(0,229,255,0.04); border:1px solid rgba(0,229,255,0.15); border-radius:12px; padding:10px 14px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <div style="min-width:0; flex:1;">
+              <div style="font-size:9px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:rgba(0,229,255,0.8);" data-i18n="settings.track.label">${t('settings.track.label')}</div>
+              <div id="settings-current-track-name" style="font-size:12px; font-weight:700; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                ${state.currentTrackTitle || 'Bgm'}
+              </div>
+            </div>
+            <div style="display:flex; gap:6px; flex-shrink:0;">
+              <button id="btn-track-prev" class="btn btn-ghost" style="padding:6px 12px; font-size:11px; border-radius:8px; cursor:pointer;" data-i18n="settings.track.prev">
+                ${t('settings.track.prev')}
               </button>
-              <button class="setting-opt-btn btn-ghost" data-group="sfxVolume" data-val="0.3" style="padding:8px 4px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
-                <div style="font-weight:700;" data-i18n="settings.vol.low">${t('settings.vol.low')}</div>
-              </button>
-              <button class="setting-opt-btn btn-ghost" data-group="sfxVolume" data-val="0.7" style="padding:8px 4px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
-                <div style="font-weight:700;" data-i18n="settings.vol.med">${t('settings.vol.med')}</div>
-              </button>
-              <button class="setting-opt-btn btn-ghost" data-group="sfxVolume" data-val="1.0" style="padding:8px 4px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
-                <div style="font-weight:700;" data-i18n="settings.vol.high">${t('settings.vol.high')}</div>
+              <button id="btn-track-next" class="btn btn-ghost" style="padding:6px 12px; font-size:11px; border-radius:8px; cursor:pointer;" data-i18n="settings.track.next">
+                ${t('settings.track.next')}
               </button>
             </div>
           </div>
