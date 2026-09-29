@@ -132,6 +132,9 @@ export class HUD {
     this.elCountdownBanner = document.getElementById('stage-countdown-banner');
     this.elWebcamPip    = document.getElementById('webcam-pip');
     this.elWebcamCanvas = document.getElementById('webcam-canvas');
+    if (this.visionManager && this.elWebcamCanvas) {
+      this.visionManager.setPreviewCanvas(this.elWebcamCanvas);
+    }
     this.elWebcamStatus   = document.getElementById('webcam-status');
 
     this.elOptLock = document.getElementById('debug-opt-lock');

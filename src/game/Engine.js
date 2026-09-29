@@ -210,25 +210,14 @@ export class Engine {
     this.scoreSystem.setTransitioning(true);
     this.obstacleManager.setTransitioning(true);
 
-    // If switching to CV stage (Stage 2..5), show camera PIP early so player can see themselves
-    if (newStage >= 2) {
-      if (!this.visionManager.isReady) {
-        this.visionManager.initWebcam(this.hud.elWebcamCanvas);
-      }
-      if (this.visionManager.settings?.pipMode !== 'off') {
-        this.hud.showWebcamPip(true);
-      }
-      this.hud.showCvFps(true);
-      this.hud.setWebcamStatus(i18n.t('hud.cam.active'));
-    }
+    // Switch model & controller immediately so cold start / shader compilation
+    // finishes during the safe runway, before obstacles resume.
+    this._applyStageSwitch(newStage);
 
     this.hud.showTransitionCountdown(newStage, this._transitionDuration, this._transitionTimer);
   }
 
   _applyStageSwitch(stage) {
-    this.controlManager.setStage(stage);
-    this.hud.announceStage(stage, this.scoreSystem.lockedStage !== null);
-
     const isCvStage = stage >= 2;
     this.hud.showCvFps(isCvStage);
     if (isCvStage) {
@@ -242,6 +231,9 @@ export class Engine {
     } else {
       this.hud.showWebcamPip(false);
     }
+
+    this.controlManager.setStage(stage);
+    this.hud.announceStage(stage, this.scoreSystem.lockedStage !== null);
   }
 
   /** Detect touch device */
@@ -511,7 +503,6 @@ export class Engine {
           this.hud.hideTransitionCountdown();
           this.obstacleManager.setTransitioning(false);
           this.scoreSystem.setTransitioning(false);
-          this._applyStageSwitch(this._transitionTargetStage);
         }
       }
 

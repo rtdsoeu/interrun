@@ -45,6 +45,7 @@ export class VisionManager {
     this._watchdogTimer = null;
     this._rvfcId = null;
     this._supportsVideoFrame = typeof VideoFrame !== 'undefined';
+    this._initPromise = null;
 
     // CV FPS & Latency metrics
     this.cvFps = 0;
@@ -105,122 +106,140 @@ export class VisionManager {
     }
   }
 
+  setPreviewCanvas(previewCanvas) {
+    if (!previewCanvas) return;
+    this.canvas = previewCanvas;
+    this.ctx = this.canvas.getContext('2d');
+    if (this.videoWidth && this.videoHeight) {
+      this._applyVideoSize();
+    }
+  }
+
   async initWebcam(previewCanvas = null) {
     if (previewCanvas) {
-      this.canvas = previewCanvas;
-      this.ctx = this.canvas.getContext('2d');
-      // Dimensions will be set after we know the real camera AR (see _applyVideoSize)
+      this.setPreviewCanvas(previewCanvas);
     }
 
     if (this.isReady) {
       return true;
     }
 
-    // Check for getUserMedia support
-    if (!navigator?.mediaDevices?.getUserMedia) {
-      console.warn('[VisionManager] WebRTC / getUserMedia is not supported or blocked in this context.');
-      this.hasPermission = false;
-      return false;
+    if (this._initPromise) {
+      return this._initPromise;
     }
 
-    try {
-      if (!this.video) {
-        this.video = document.createElement('video');
-        this.video.setAttribute('playsinline', '');
-        this.video.setAttribute('webkit-playsinline', '');
-        this.video.setAttribute('autoplay', '');
-        this.video.setAttribute('muted', '');
-        this.video.muted = true;
-        // Do NOT use display: none — WebKit (iOS) pauses or stops decoding frames for hidden elements
-        this.video.style.position = 'fixed';
-        this.video.style.top = '-9999px';
-        this.video.style.left = '-9999px';
-        this.video.style.width = '1px';
-        this.video.style.height = '1px';
-        this.video.style.opacity = '0';
-        this.video.style.pointerEvents = 'none';
-        document.body.appendChild(this.video);
+    this._initPromise = (async () => {
+      // Check for getUserMedia support
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        console.warn('[VisionManager] WebRTC / getUserMedia is not supported or blocked in this context.');
+        this.hasPermission = false;
+        return false;
       }
 
-      // Explicitly request FRONT / SELFIE CAMERA ('user') with mobile-safe tiers:
-      // Note: Height is unconstrained so portrait 9:16 mobile cameras never fail with OverconstrainedError.
-      // FrameRate uses ideal only (no min constraint) to support all mobile camera drivers.
       try {
-        this.stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: 'user' },
-            width: { ideal: 320 },
-            frameRate: { ideal: 60 }
-          },
-          audio: false
-        });
-      } catch (err1) {
-        console.warn('[VisionManager] Tier 1 camera request failed, trying Tier 2 (basic front camera):', err1);
+        if (!this.video) {
+          this.video = document.createElement('video');
+          this.video.setAttribute('playsinline', '');
+          this.video.setAttribute('webkit-playsinline', '');
+          this.video.setAttribute('autoplay', '');
+          this.video.setAttribute('muted', '');
+          this.video.muted = true;
+          // Do NOT use display: none — WebKit (iOS) pauses or stops decoding frames for hidden elements
+          this.video.style.position = 'fixed';
+          this.video.style.top = '-9999px';
+          this.video.style.left = '-9999px';
+          this.video.style.width = '1px';
+          this.video.style.height = '1px';
+          this.video.style.opacity = '0';
+          this.video.style.pointerEvents = 'none';
+          document.body.appendChild(this.video);
+        }
+
+        // Explicitly request FRONT / SELFIE CAMERA ('user') with mobile-safe tiers:
+        // Note: Height is unconstrained so portrait 9:16 mobile cameras never fail with OverconstrainedError.
+        // FrameRate uses ideal only (no min constraint) to support all mobile camera drivers.
         try {
           this.stream = await navigator.mediaDevices.getUserMedia({
             video: {
-              facingMode: 'user',
-              width: { ideal: 320 }
+              facingMode: { ideal: 'user' },
+              width: { ideal: 320 },
+              frameRate: { ideal: 60 }
             },
             audio: false
           });
-        } catch (err2) {
-          console.warn('[VisionManager] Tier 2 front camera failed, trying Tier 3 (permissive front camera):', err2);
+        } catch (err1) {
+          console.warn('[VisionManager] Tier 1 camera request failed, trying Tier 2 (basic front camera):', err1);
           try {
             this.stream = await navigator.mediaDevices.getUserMedia({
               video: {
-                facingMode: { ideal: 'user' }
+                facingMode: 'user',
+                width: { ideal: 320 }
               },
               audio: false
             });
-          } catch (err3) {
-            console.warn('[VisionManager] Tier 3 failed, trying any available camera:', err3);
-            this.stream = await navigator.mediaDevices.getUserMedia({
-              video: true,
-              audio: false
-            });
+          } catch (err2) {
+            console.warn('[VisionManager] Tier 2 front camera failed, trying Tier 3 (permissive front camera):', err2);
+            try {
+              this.stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                  facingMode: { ideal: 'user' }
+                },
+                audio: false
+              });
+            } catch (err3) {
+              console.warn('[VisionManager] Tier 3 failed, trying any available camera:', err3);
+              this.stream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: false
+              });
+            }
           }
         }
+
+        this.video.srcObject = this.stream;
+        await new Promise((resolve) => {
+          this.video.onloadedmetadata = async () => {
+            try {
+              await this.video.play();
+            } catch (playErr) {
+              console.warn('[VisionManager] video.play() warning:', playErr);
+            }
+            // Adapt PIP canvas and notify worker of real camera dimensions
+            this._applyVideoSize();
+            resolve();
+          };
+        });
+
+        this.hasPermission = true;
+        this.isReady = true;
+
+        // Start Web Worker background thread
+        this._initWorker();
+
+        // Start frame capture loop
+        this._startCaptureLoop();
+
+        // Pause CV inference when tab is hidden — saves full 30fps GPU/CPU budget
+        // on the worker when user alt-tabs or minimizes the window.
+        if (typeof document !== 'undefined') {
+          this._onVisibilityChange = () => {
+            this._tabHidden = document.hidden;
+          };
+          document.addEventListener('visibilitychange', this._onVisibilityChange);
+        }
+
+        return true;
+      } catch (err) {
+        console.warn('[VisionManager] Camera access error:', err);
+        this.hasPermission = false;
+        this.isReady = false;
+        return false;
+      } finally {
+        this._initPromise = null;
       }
+    })();
 
-      this.video.srcObject = this.stream;
-      await new Promise((resolve) => {
-        this.video.onloadedmetadata = async () => {
-          try {
-            await this.video.play();
-          } catch (playErr) {
-            console.warn('[VisionManager] video.play() warning:', playErr);
-          }
-          // Adapt PIP canvas and notify worker of real camera dimensions
-          this._applyVideoSize();
-          resolve();
-        };
-      });
-
-      this.hasPermission = true;
-      this.isReady = true;
-
-      // Start Web Worker background thread
-      this._initWorker();
-
-      // Start frame capture loop
-      this._startCaptureLoop();
-
-      // Pause CV inference when tab is hidden — saves full 30fps GPU/CPU budget
-      // on the worker when user alt-tabs or minimizes the window.
-      if (typeof document !== 'undefined') {
-        this._onVisibilityChange = () => {
-          this._tabHidden = document.hidden;
-        };
-        document.addEventListener('visibilitychange', this._onVisibilityChange);
-      }
-
-      return true;
-    } catch (err) {
-      console.warn('[VisionManager] Camera access error:', err);
-      this.hasPermission = false;
-      return false;
-    }
+    return this._initPromise;
   }
 
   _initWorker() {
