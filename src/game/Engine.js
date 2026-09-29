@@ -1,0 +1,555 @@
+import * as THREE from 'three';
+import { CameraRig } from './CameraRig.js';
+import { Runner, PlayerState } from './Runner.js';
+import { Track } from './Track.js';
+import { ObstacleManager } from './Obstacles.js';
+import { ScoreSystem } from './ScoreSystem.js';
+import { ControlManager } from '../controls/ControlManager.js';
+import { KeyboardControl } from '../controls/KeyboardControl.js';
+import { PointerControl } from '../controls/PointerControl.js';
+import { ZoneControl } from '../controls/ZoneControl.js';
+import { HandZoneControl } from '../controls/HandZoneControl.js';
+import { FingerGestureControl } from '../controls/FingerGestureControl.js';
+import { HandSwipeControl } from '../controls/HandSwipeControl.js';
+import { TouchButtonControl } from '../controls/TouchButtonControl.js';
+import { VisionManager } from '../vision/VisionManager.js';
+import { SkinManager } from '../skins/SkinManager.js';
+import { SoundFx } from '../audio/SoundFx.js';
+import { AudioManager } from '../audio/AudioManager.js';
+import { HUD } from '../ui/HUD.js';
+import { i18n } from '../i18n/i18n.js';
+
+export const GameState = {
+  MENU: 'menu',
+  PLAYING: 'playing',
+  DEAD: 'dead'
+};
+
+/**
+ * Engine — InterRun main game core.
+ * Control stages:
+ *   0 — KeyboardControl (WASD / Arrows) / TouchButtonControl (mobile D-pad)
+ *   1 — PointerControl (Mouse + Touch swipes)
+ *   2 — ZoneControl (Zone CV 3×3 grid, hand priority, face fallback)
+ *   3 — HandZoneControl (Zone 3×3, hand only)
+ *   4 — FingerGestureControl (finger gestures: 1/2/3 fingers, palm, fist)
+ *   5 — HandSwipeControl (air swipes left/right/up/down)
+ */
+export class Engine {
+  constructor(canvas, uiRoot) {
+    this.canvas = canvas;
+    this.uiRoot = uiRoot;
+
+    this.state = GameState.MENU;
+    this.coins = 0;
+    this.lives = 3;
+    this.godMode = false;
+    this.invulnerableTimer = 0;
+
+    // 1. Audio, computer vision, and skin initialisation
+    this.soundFx = new SoundFx();
+    this.soundFx.startBGM('menu');
+    this.audioManager = new AudioManager();
+    this.skinManager = new SkinManager();
+    this.visionManager = new VisionManager();
+    // Start background model preload while the menu is visible — eliminates the
+    // loading delay when the player first reaches a CV stage (Stage 2+)
+    this.visionManager.preloadModels();
+
+    // 2. Инициализация Three.js
+    this._initThree();
+
+    // 3. Компоненты игры
+    this.cameraRig = new CameraRig(this.camera);
+    this.runner = new Runner(this.scene, this.soundFx);
+    this.track = new Track(this.scene, this.skinManager);
+    this.obstacleManager = new ObstacleManager(this.scene, this.skinManager, this.soundFx);
+    this.scoreSystem = new ScoreSystem();
+
+    // 4. Плагины управления
+    this._initControls();
+
+    // 5. HUD и интерфейс
+    this.hud = new HUD(this.uiRoot, this.skinManager, this.soundFx, this.visionManager);
+    this._bindHUD();
+    this.visionManager.onFpsUpdate = (fps, latency) => this.hud.updateCvFPS(fps, latency);
+
+    // 6. Горячие клавиши отладки
+    this._bindDebugShortcuts();
+
+    // 7. Подписка на смену тем и скинов
+    this._bindSkinManager();
+
+    // 8. Переключение языка → перерендер HUD
+    i18n.onLangChange = () => this.hud.rerender();
+
+    // 9. Игровой цикл и счетчик FPS
+    this.clock = new THREE.Clock();
+    this._frameCount = 0;
+    this._fpsTimer = 0;
+    this._onResize = () => this._handleResize();
+    window.addEventListener('resize', this._onResize);
+
+    // 10. Stage transition & early camera pre-warm
+    this._transitioning = false;
+    this._transitionTimer = 0;
+    this._transitionDuration = 3.5;
+    this._transitionTargetStage = null;
+    this._prewarmedCam = false;
+
+    // Первоначальное применение темы
+    this._applySceneTheme(this.skinManager.activeTheme);
+    this.runner.applySkin(this.skinManager.activeCharSkin);
+
+    // Старт цикла рендера
+    this._animate();
+  }
+
+  _initThree() {
+    this.scene = new THREE.Scene();
+
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    this.camera = new THREE.PerspectiveCamera(62, w / h, 0.1, 300);
+
+    this.renderer = new THREE.WebGLRenderer({
+      canvas: this.canvas,
+      antialias: true,
+      powerPreference: 'high-performance'
+    });
+    this.renderer.setSize(w, h);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    // Освещение сцены
+    this.ambientLight = new THREE.AmbientLight(0x334466, 1.2);
+    this.scene.add(this.ambientLight);
+
+    this.dirLight = new THREE.DirectionalLight(0x88ccff, 1.8);
+    this.dirLight.position.set(10, 20, 15);
+    this.dirLight.castShadow = true;
+    this.dirLight.shadow.mapSize.width = 1024;
+    this.dirLight.shadow.mapSize.height = 1024;
+    this.dirLight.shadow.camera.near = 0.5;
+    this.dirLight.shadow.camera.far = 60;
+    this.dirLight.shadow.camera.left = -10;
+    this.dirLight.shadow.camera.right = 10;
+    this.dirLight.shadow.camera.top = 10;
+    this.dirLight.shadow.camera.bottom = -10;
+    this.scene.add(this.dirLight);
+
+    // Туман горизонта
+    this.scene.fog = new THREE.Fog(0x070b19, 25, 140);
+  }
+
+  _initControls() {
+    this.controlManager = new ControlManager();
+
+    // Stage 0: Keyboard (WASD / Arrows)
+    this.controlManager.register(0, new KeyboardControl());
+
+    // Stage 1: Pointer swipes (mouse & touch)
+    this.controlManager.register(1, new PointerControl());
+
+    // Stage 2: Zone CV — 3×3 grid (hand priority, face fallback)
+    this.controlManager.register(2, new ZoneControl(this.visionManager));
+
+    // Stage 3: HandZone — 3×3 grid, hand only
+    this.controlManager.register(3, new HandZoneControl(this.visionManager));
+
+    // Stage 4: FingerGesture — finger gestures (1/2/3 fingers, palm, fist)
+    this.controlManager.register(4, new FingerGestureControl(this.visionManager));
+
+    // Stage 5: HandSwipe — contactless air swipes (left, right, up, down)
+    this.controlManager.register(5, new HandSwipeControl(this.visionManager));
+
+    // На touch-устройствах этап 0 заменяется на виртуальный D-pad,
+    // а этап 1 остаётся PointerControl (нативные свайпы пальцем по экрану)
+    if (this._isTouchDevice()) {
+      this._touchButtons = new TouchButtonControl();
+      this.controlManager.register(0, this._touchButtons);
+    }
+
+    this.scoreSystem.onStageChange = (newStage) => {
+      // If debug locked, not playing, or not advancing forward, switch stage immediately without countdown
+      if (this.scoreSystem.lockedStage !== null || this.state !== GameState.PLAYING || newStage <= this.controlManager.stage) {
+        this._transitioning = false;
+        this.hud.hideTransitionCountdown();
+        this.obstacleManager.setTransitioning(false);
+        this.scoreSystem.setTransitioning(false);
+        this._applyStageSwitch(newStage);
+        return;
+      }
+
+      // Smooth stage transition with top countdown banner and safe runway
+      this._startStageTransition(newStage);
+    };
+  }
+
+  _startStageTransition(newStage) {
+    this._transitioning = true;
+    this._transitionDuration = 3.5;
+    this._transitionTimer = 3.5;
+    this._transitionTargetStage = newStage;
+
+    this.scoreSystem.setTransitioning(true);
+    this.obstacleManager.setTransitioning(true);
+    this.soundFx?.setBgmMode('transition');
+
+    // If switching to CV stage (Stage 2..5), show camera PIP early so player can see themselves
+    if (newStage >= 2) {
+      if (!this.visionManager.isReady) {
+        this.visionManager.initWebcam(this.hud.elWebcamCanvas);
+      }
+      this.hud.showWebcamPip(true);
+      this.hud.showCvFps(true);
+      this.hud.setWebcamStatus(i18n.t('hud.cam.active'));
+    }
+
+    this.hud.showTransitionCountdown(newStage, this._transitionDuration, this._transitionTimer);
+  }
+
+  _applyStageSwitch(stage) {
+    this.controlManager.setStage(stage);
+    this.hud.announceStage(stage, this.scoreSystem.lockedStage !== null);
+    if (this.state === GameState.PLAYING) {
+      this.soundFx?.setBgmMode('game');
+    }
+
+    const isCvStage = stage >= 2;
+    this.hud.showCvFps(isCvStage);
+    if (isCvStage) {
+      if (!this.visionManager.isReady) {
+        this.visionManager.initWebcam(this.hud.elWebcamCanvas);
+      }
+      this.hud.showWebcamPip(true);
+      this.hud.setWebcamStatus(i18n.t('hud.cam.active'));
+    }
+  }
+
+  /** Определяет touch-устройство */
+  _isTouchDevice() {
+    return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  }
+
+  _bindHUD() {
+    this.hud.onStartGame = () => this.startGame(0, false, false);
+    this.hud.onRestartGame = () => this.startGame(0, false, false);
+
+    this.hud.onStartDebug = (stage, isLocked, isGod, speedMultiplier) => {
+      this.startGame(stage, isLocked, isGod, speedMultiplier);
+    };
+
+    this.hud.onApplyLiveDebug = (stage, isLocked, isGod, speedMultiplier) => {
+      this.godMode = isGod;
+      this.setDebugStage(stage, isLocked, speedMultiplier);
+    };
+
+    this.hud.onToggleCamera = () => {
+      if (!this.visionManager.isReady) {
+        this.visionManager.initWebcam(this.hud.elWebcamCanvas);
+      }
+      const pip = this.hud.elWebcamPip;
+      const isHidden = !pip || pip.classList.contains('hidden');
+      this.hud.showWebcamPip(isHidden);
+      this.hud.showCvFps(isHidden);
+    };
+
+    this.hud.onGoToMenu = () => this.goToMenu();
+
+    this.hud.onToggleSound = () => {
+      const isMuted = this.soundFx.toggleMute();
+      this.hud.updateSoundState(isMuted);
+    };
+
+    this.hud.onUpdateAudioSettings = (settings) => {
+      if (settings.sfxVolume !== undefined) this.soundFx.setSfxVolume(settings.sfxVolume);
+      if (settings.bgmVolume !== undefined) this.soundFx.setBgmVolume(settings.bgmVolume);
+      if (settings.muted !== undefined) this.soundFx.setMuted(settings.muted);
+      this.hud.updateSoundState(this.soundFx.muted);
+    };
+  }
+
+  _bindDebugShortcuts() {
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      const key = e.key;
+
+      // Escape: Close modals or return to main menu during gameplay
+      if (key === 'Escape') {
+        if (this.hud.isAnyModalOpen()) {
+          this.hud.closeAllModals();
+        } else if (this.state === GameState.PLAYING) {
+          this.goToMenu();
+        }
+        return;
+      }
+
+      // Keys 0-5: instant stage select & lock
+      if (key >= '0' && key <= '5') {
+        this.setDebugStage(parseInt(key, 10), true);
+        return;
+      }
+
+      // G: God Mode
+      if (key === 'g' || key === 'G' || key === 'п' || key === 'П') {
+        this.toggleGodMode();
+        return;
+      }
+
+      // L: Stage lock
+      if (key === 'l' || key === 'L' || key === 'д' || key === 'Д') {
+        this.toggleStageLock();
+        return;
+      }
+
+      // F2 / ` / ~: Debug panel
+      if (key === '`' || key === '~' || key === 'ё' || key === 'Ё' || key === 'F2') {
+        e.preventDefault();
+        this.hud.toggleDebugModal();
+        return;
+      }
+
+      // M: Toggle audio mute
+      if (key === 'm' || key === 'M' || key === 'ь' || key === 'Ь') {
+        const isMuted = this.soundFx.toggleMute();
+        this.hud.updateSoundState(isMuted);
+        return;
+      }
+    });
+  }
+
+  goToMenu() {
+    this.state = GameState.MENU;
+    this._transitioning = false;
+    this.hud.hideTransitionCountdown();
+    this.obstacleManager.setTransitioning(false);
+    this.scoreSystem.setTransitioning(false);
+    this.scoreSystem.stop();
+    this.controlManager.setStage(-1);
+    this.soundFx?.setBgmMode('menu');
+    this.hud.showMenu();
+  }
+
+  setDebugStage(stageNum, lock = true, speedMultiplier = null) {
+    if (stageNum < 0 || stageNum > 5) return;
+
+    this._transitioning = false;
+    this.hud.hideTransitionCountdown();
+    this.obstacleManager.setTransitioning(false);
+    this.scoreSystem.setTransitioning(false);
+
+    // Fast-forward distance to stage threshold so subsequent update() calls do not downgrade stage
+    const threshold = this.scoreSystem.STAGE_THRESHOLDS[stageNum] || 0;
+    if (this.scoreSystem.distance < threshold) {
+      this.scoreSystem.distance = threshold;
+    }
+
+    if (speedMultiplier !== null && speedMultiplier !== undefined) {
+      this.scoreSystem.setSpeedMultiplier(speedMultiplier);
+    }
+
+    this.scoreSystem.setLockedStage(lock ? stageNum : null);
+    this._applyStageSwitch(stageNum);
+  }
+
+  toggleGodMode() {
+    this.godMode = !this.godMode;
+    console.log(`[InterRun] God Mode: ${this.godMode ? 'ON' : 'OFF'}`);
+  }
+
+  toggleStageLock() {
+    const isLocked = this.scoreSystem.toggleLock();
+    this.hud.announceStage(this.scoreSystem.stage, isLocked);
+  }
+
+  _bindSkinManager() {
+    this.skinManager.onChange((type, data) => {
+      if (type === 'theme') {
+        this._applySceneTheme(data);
+        this.track.applyTheme(data);
+        this.obstacleManager.applyTheme(data);
+      } else if (type === 'character') {
+        this.runner.applySkin(data);
+      }
+    });
+  }
+
+  _applySceneTheme(theme) {
+    if (!theme) return;
+    this.scene.background = new THREE.Color(theme.skyColor);
+    if (this.scene.fog) {
+      this.scene.fog.color.setHex(theme.fogColor);
+      this.scene.fog.near = theme.fogNear;
+      this.scene.fog.far = theme.fogFar;
+    }
+    this.ambientLight.color.setHex(theme.ambientLight);
+    this.dirLight.color.setHex(theme.directionalLight);
+  }
+
+  _handleResize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h);
+  }
+
+  startGame(stage = 0, isLocked = false, isGodMode = false, speedMultiplier = 1.0) {
+    this.coins = 0;
+    this.lives = 3;
+    this.godMode = isGodMode;
+    this.invulnerableTimer = 0;
+    this._transitioning = false;
+    this._prewarmedCam = false;
+
+    this.runner.reset();
+    this.track.reset();
+    this.obstacleManager.reset();
+    this.obstacleManager.setTransitioning(false);
+    this.scoreSystem.setTransitioning(false);
+    this.hud.hideTransitionCountdown();
+
+    this.scoreSystem.start(stage, isLocked, speedMultiplier);
+    this._applyStageSwitch(stage);
+
+    this.soundFx?.unlock();
+    this.soundFx?.startBGM('game');
+    this.soundFx?.setBgmMode('game');
+
+    this.cameraRig.reset(this.runner.pos);
+
+    this.state = GameState.PLAYING;
+    this.hud.showGame();
+  }
+
+  gameOver() {
+    this.state = GameState.DEAD;
+    this._transitioning = false;
+    this.hud.hideTransitionCountdown();
+    this.obstacleManager.setTransitioning(false);
+    this.scoreSystem.setTransitioning(false);
+    this.scoreSystem.stop();
+    this.controlManager.setStage(-1);
+    this.soundFx?.setBgmMode('dead');
+
+    this.runner.crash();
+    this.cameraRig.addTrauma(0.9);
+
+    setTimeout(() => {
+      this.hud.showGameOver(this.scoreSystem.distance, this.scoreSystem.bestScore, this.coins);
+    }, 900);
+  }
+
+  _onPlayerHit(obstacle) {
+    if (this.invulnerableTimer > 0) return;
+
+    if (this.godMode) {
+      this.cameraRig.addTrauma(0.4);
+      this.invulnerableTimer = 0.8;
+      if (this.soundFx) this.soundFx.playCrash();
+      return;
+    }
+
+    this.lives--;
+    this.cameraRig.addTrauma(0.6);
+
+    if (this.lives <= 0) {
+      this.gameOver();
+    } else {
+      this.invulnerableTimer = 1.3;
+      if (this.soundFx) this.soundFx.playCrash();
+    }
+  }
+
+  _animate() {
+    requestAnimationFrame(() => this._animate());
+
+    const dt = Math.min(this.clock.getDelta(), 0.08);
+
+    // FPS counter
+    this._frameCount++;
+    this._fpsTimer += dt;
+    if (this._fpsTimer >= 0.25) {
+      const fps = Math.round(this._frameCount / this._fpsTimer);
+      this._frameCount = 0;
+      this._fpsTimer = 0;
+      this.hud.updateFPS(fps);
+    }
+
+    if (this.state === GameState.PLAYING) {
+      // Early background camera pre-warm as soon as player reaches Stage 1 (100m)
+      if (!this._prewarmedCam && this.scoreSystem.distance >= 100) {
+        this._prewarmedCam = true;
+        if (!this.visionManager.isReady) {
+          this.visionManager.initWebcam(this.hud.elWebcamCanvas);
+        }
+      }
+
+      // Transition countdown update
+      if (this._transitioning) {
+        this._transitionTimer -= dt;
+        this.hud.updateTransitionCountdown(this._transitionTimer, this._transitionDuration);
+
+        if (this._transitionTimer <= 0) {
+          this._transitioning = false;
+          this.hud.hideTransitionCountdown();
+          this.obstacleManager.setTransitioning(false);
+          this.scoreSystem.setTransitioning(false);
+          this._applyStageSwitch(this._transitionTargetStage);
+        }
+      }
+
+      this.scoreSystem.update(dt);
+      const speed = this.scoreSystem.speed;
+      const speedNorm = this.scoreSystem.speedNorm;
+      const difficulty = this.scoreSystem.difficulty;
+
+      this.visionManager.update();
+      this.controlManager.update(dt);
+      const input = this.controlManager.consume();
+      this.runner.handleInput(input);
+
+      this.runner.update(dt, speed);
+
+      if (this.invulnerableTimer > 0) {
+        this.invulnerableTimer -= dt;
+        const blink = Math.floor(this.invulnerableTimer * 14) % 2 === 0;
+        this.runner.meshGroup.visible = blink;
+      } else {
+        this.runner.meshGroup.visible = true;
+      }
+
+      this.track.update(dt, speed);
+
+      this.obstacleManager.update(
+        dt, speed, difficulty,
+        this.runner.hitbox,
+        (hitObs) => this._onPlayerHit(hitObs),
+        () => { this.coins++; }
+      );
+
+      this.cameraRig.update(dt, this.runner.pos, this.runner.xVelocity, speedNorm,
+        this.runner.state === PlayerState.SLIDING);
+
+      this.hud.updateHUD(
+        this.scoreSystem.distance, speedNorm, this.coins, this.lives,
+        this.godMode, this.scoreSystem.lockedStage !== null
+      );
+
+    } else if (this.state === GameState.MENU) {
+      this.track.update(dt, 7);
+      this.runner.update(dt, 7);
+      this.cameraRig.update(dt, this.runner.pos, 0, 0.1, false);
+
+    } else if (this.state === GameState.DEAD) {
+      this.runner.update(dt, 0);
+      this.cameraRig.update(dt, this.runner.pos, 0, 0, false);
+    }
+
+    this.renderer.render(this.scene, this.camera);
+  }
+}
