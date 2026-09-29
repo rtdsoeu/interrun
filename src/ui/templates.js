@@ -330,21 +330,6 @@ export function getHUDHtml(t, i18n, state = {}) {
           <button id="btn-close-settings" style="background:none; border:none; color:rgba(255,255,255,0.6); font-size:24px; cursor:pointer;">✕</button>
         </div>
 
-        <!-- CV Resolution -->
-        <div>
-          <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--accent); margin-bottom:8px;" data-i18n="settings.cv_res">${t('settings.cv_res')}</div>
-          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px;" id="settings-res-group">
-            <button class="setting-opt-btn btn-ghost" data-group="resolution" data-val="eco" style="padding:10px 6px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
-              <div style="font-weight:700;" data-i18n="settings.cv_res.eco">${t('settings.cv_res.eco')}</div>
-            </button>
-            <button class="setting-opt-btn btn-ghost" data-group="resolution" data-val="balanced" style="padding:10px 6px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
-              <div style="font-weight:700;" data-i18n="settings.cv_res.balanced">${t('settings.cv_res.balanced')}</div>
-            </button>
-            <button class="setting-opt-btn btn-ghost" data-group="resolution" data-val="high" style="padding:10px 6px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
-              <div style="font-weight:700;" data-i18n="settings.cv_res.high">${t('settings.cv_res.high')}</div>
-            </button>
-          </div>
-        </div>
 
         <!-- Target CV FPS -->
         <div>

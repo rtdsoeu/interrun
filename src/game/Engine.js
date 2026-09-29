@@ -215,7 +215,9 @@ export class Engine {
       if (!this.visionManager.isReady) {
         this.visionManager.initWebcam(this.hud.elWebcamCanvas);
       }
-      this.hud.showWebcamPip(true);
+      if (this.visionManager.settings?.pipMode !== 'off') {
+        this.hud.showWebcamPip(true);
+      }
       this.hud.showCvFps(true);
       this.hud.setWebcamStatus(i18n.t('hud.cam.active'));
     }
@@ -233,7 +235,9 @@ export class Engine {
       if (!this.visionManager.isReady) {
         this.visionManager.initWebcam(this.hud.elWebcamCanvas);
       }
-      this.hud.showWebcamPip(true);
+      if (this.visionManager.settings?.pipMode !== 'off') {
+        this.hud.showWebcamPip(true);
+      }
       this.hud.setWebcamStatus(i18n.t('hud.cam.active'));
     } else {
       this.hud.showWebcamPip(false);
@@ -265,7 +269,9 @@ export class Engine {
       const pip = this.hud.elWebcamPip;
       const isHidden = !pip || pip.classList.contains('hidden');
       this.hud.showWebcamPip(isHidden);
-      this.hud.showCvFps(isHidden);
+      // Keep CV FPS visible on CV stages (Stage 2-5) even if the preview window is closed
+      const isCvStage = this.scoreSystem.stage >= 2;
+      this.hud.showCvFps(isCvStage);
     };
 
     this.hud.onGoToMenu = () => this.goToMenu();

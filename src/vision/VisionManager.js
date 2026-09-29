@@ -44,6 +44,7 @@ export class VisionManager {
     this._dispatchTimer = null;
     this._watchdogTimer = null;
     this._rvfcId = null;
+    this._supportsVideoFrame = typeof VideoFrame !== 'undefined';
 
     // CV FPS & Latency metrics
     this.cvFps = 0;
@@ -130,39 +131,55 @@ export class VisionManager {
         this.video.setAttribute('autoplay', '');
         this.video.setAttribute('muted', '');
         this.video.muted = true;
-        this.video.style.display = 'none';
+        // Do NOT use display: none — WebKit (iOS) pauses or stops decoding frames for hidden elements
+        this.video.style.position = 'fixed';
+        this.video.style.top = '-9999px';
+        this.video.style.left = '-9999px';
+        this.video.style.width = '1px';
+        this.video.style.height = '1px';
+        this.video.style.opacity = '0';
+        this.video.style.pointerEvents = 'none';
         document.body.appendChild(this.video);
       }
 
-      // Constrain width to 320–640px and request 60 FPS where supported.
-      // This prevents Windows Camera Frame Server from capturing heavy 1080p frames,
-      // and unlocks high FPS on cameras that support 60fps at 720p/480p/320p.
+      // Explicitly request FRONT / SELFIE CAMERA ('user') with mobile-safe tiers:
+      // Note: Height is unconstrained so portrait 9:16 mobile cameras never fail with OverconstrainedError.
+      // FrameRate uses ideal only (no min constraint) to support all mobile camera drivers.
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: 'user',
-            width: { ideal: 320, max: 640 },
-            height: { ideal: 240, max: 480 },
-            frameRate: { ideal: 60, min: 30 }
+            facingMode: { ideal: 'user' },
+            width: { ideal: 320 },
+            frameRate: { ideal: 60 }
           },
           audio: false
         });
-      } catch (userCamErr) {
-        console.warn('[VisionManager] Preferred 60fps/facingMode constraints failed, trying relaxed 60fps:', userCamErr);
+      } catch (err1) {
+        console.warn('[VisionManager] Tier 1 camera request failed, trying Tier 2 (basic front camera):', err1);
         try {
           this.stream = await navigator.mediaDevices.getUserMedia({
             video: {
-              width: { ideal: 320, max: 640 },
-              frameRate: { ideal: 60 }
+              facingMode: 'user',
+              width: { ideal: 320 }
             },
             audio: false
           });
-        } catch (fallbackErr) {
-          console.warn('[VisionManager] 60fps failed, trying basic camera:', fallbackErr);
-          this.stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 320 } },
-            audio: false
-          });
+        } catch (err2) {
+          console.warn('[VisionManager] Tier 2 front camera failed, trying Tier 3 (permissive front camera):', err2);
+          try {
+            this.stream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                facingMode: { ideal: 'user' }
+              },
+              audio: false
+            });
+          } catch (err3) {
+            console.warn('[VisionManager] Tier 3 failed, trying any available camera:', err3);
+            this.stream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: false
+            });
+          }
         }
       }
 
@@ -362,32 +379,34 @@ export class VisionManager {
     this._workerBusy = true;
     this._lastSendTime = now;
 
-    if (typeof VideoFrame !== 'undefined') {
+    if (this._supportsVideoFrame) {
       try {
         const frame = new VideoFrame(this.video);
         this.worker.postMessage(
-          { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
+          { type: 'process', frame, timestamp: now, mode: this.activeMode },
           [frame]
         );
-      } catch (e) {
-        this._workerBusy = false;
+        return;
+      } catch (vfErr) {
+        // VideoFrame failed on this browser/platform (e.g. mobile Safari) — permanently switch to createImageBitmap
+        this._supportsVideoFrame = false;
       }
-    } else {
-      createImageBitmap(this.video)
-        .then((frame) => {
-          if (!this._loopRunning || !this._workerBusy) {
-            frame.close();
-            return;
-          }
-          this.worker.postMessage(
-            { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
-            [frame]
-          );
-        })
-        .catch(() => {
-          this._workerBusy = false;
-        });
     }
+
+    createImageBitmap(this.video)
+      .then((frame) => {
+        if (!this._loopRunning || !this._workerBusy) {
+          frame.close();
+          return;
+        }
+        this.worker.postMessage(
+          { type: 'process', frame, timestamp: now, mode: this.activeMode },
+          [frame]
+        );
+      })
+      .catch(() => {
+        this._workerBusy = false;
+      });
   }
 
   /**

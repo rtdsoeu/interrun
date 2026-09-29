@@ -141,11 +141,7 @@ export const translations = {
 
   // ─── SETTINGS ───────────────────────────────────────────────────────────────
   'settings.title':         { en: '⚙️ Performance & Camera Settings', uk: '⚙️ Налаштування графіки та камери' },
-  'settings.subtitle':      { en: 'Tune computer vision resolution, target frame rate, and preview overhead', uk: 'Керування роздільною здатністю CV, цільовим FPS та навантаженням прев’ю' },
-  'settings.cv_res':        { en: 'Computer Vision Resolution:',     uk: 'Роздільна здатність кадру нейромережі (CV):' },
-  'settings.cv_res.eco':    { en: '⚡ Eco (160×120) — Max FPS',       uk: '⚡ Еко (160×120) — Макс. FPS' },
-  'settings.cv_res.balanced': { en: '⚖️ Balanced (256×192) — Standard', uk: '⚖️ Баланс (256×192) — Стандарт' },
-  'settings.cv_res.high':   { en: '🎯 High (320×240) — Best Accuracy', uk: '🎯 Висока (320×240) — Точність' },
+  'settings.subtitle':      { en: 'Tune target frame rate, preview overhead, and audio', uk: 'Керування цільовим FPS, навантаженням прев’ю та звуком' },
   'settings.cv_fps':        { en: 'CV Target Frame Rate:',           uk: 'Цільова частота кадрів CV:' },
   'settings.cv_fps.20':     { en: '20 FPS (Save Battery/GPU)',       uk: '20 FPS (Економія батареї/GPU)' },
   'settings.cv_fps.30':     { en: '30 FPS (Smooth Standard)',        uk: '30 FPS (Плавний стандарт)' },
