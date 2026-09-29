@@ -314,7 +314,15 @@ async function ensureModel(mode) {
           FaceLandmarker, visionTasks,
           `${rootUrl}/models/face_landmarker.task`,
           'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-          { runningMode: 'VIDEO', numFaces: 1 }
+          {
+            runningMode: 'VIDEO',
+            numFaces: 1,
+            outputFaceBlendshapes: false,
+            outputFacialTransformationMatrixes: false,
+            minFaceDetectionConfidence: 0.5,
+            minFacePresenceConfidence: 0.5,
+            minTrackingConfidence: 0.5
+          }
         );
         self.postMessage({ type: 'model_ready', mode: 'face', delegate: faceLandmarker._delegate, src: faceLandmarker._src });
       } catch (faceErr) {
@@ -329,7 +337,13 @@ async function ensureModel(mode) {
           HandLandmarker, visionTasks,
           `${rootUrl}/models/hand_landmarker.task`,
           'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-          { runningMode: 'VIDEO', numHands: 1 }
+          {
+            runningMode: 'VIDEO',
+            numHands: 1,
+            minHandDetectionConfidence: 0.5,
+            minHandPresenceConfidence: 0.5,
+            minTrackingConfidence: 0.5
+          }
         );
         self.postMessage({ type: 'model_ready', mode: 'hands', delegate: handLandmarker._delegate, src: handLandmarker._src });
       } catch (handErr) {

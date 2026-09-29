@@ -41,6 +41,9 @@ export class VisionManager {
     this._loopRunning = false;
     this._pendingPreload = false; // set by preloadModels() before worker is ready
     this._tabHidden = false;      // set by Page Visibility API to pause inference
+    this._dispatchTimer = null;
+    this._watchdogTimer = null;
+    this._rvfcId = null;
 
     // CV FPS & Latency metrics
     this.cvFps = 0;
@@ -131,25 +134,36 @@ export class VisionManager {
         document.body.appendChild(this.video);
       }
 
-      // Constrain width to ~320px so Windows Camera Frame Server captures
-      // small frames (avoids the 20% CPU overhead of full-resolution capture).
-      // Height is intentionally unconstrained — the camera driver picks the
-      // height that matches its native AR, so portrait phone cameras stay 9:16
-      // instead of being squashed into a forced 4:3 box.
+      // Constrain width to 320–640px and request 60 FPS where supported.
+      // This prevents Windows Camera Frame Server from capturing heavy 1080p frames,
+      // and unlocks high FPS on cameras that support 60fps at 720p/480p/320p.
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: 'user',
-            width: { ideal: 320 }
+            width: { ideal: 320, max: 640 },
+            height: { ideal: 240, max: 480 },
+            frameRate: { ideal: 60, min: 30 }
           },
           audio: false
         });
       } catch (userCamErr) {
-        console.warn('[VisionManager] facingMode user failed, trying default camera:', userCamErr);
-        this.stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 320 } },
-          audio: false
-        });
+        console.warn('[VisionManager] Preferred 60fps/facingMode constraints failed, trying relaxed 60fps:', userCamErr);
+        try {
+          this.stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 320, max: 640 },
+              frameRate: { ideal: 60 }
+            },
+            audio: false
+          });
+        } catch (fallbackErr) {
+          console.warn('[VisionManager] 60fps failed, trying basic camera:', fallbackErr);
+          this.stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 320 } },
+            audio: false
+          });
+        }
       }
 
       this.video.srcObject = this.stream;
@@ -237,6 +251,8 @@ export class VisionManager {
               this.onFpsUpdate(this.cvFps, this.cvLatency);
             }
           }
+          // Reactive dispatch: immediately pipeline the next frame as soon as worker finishes
+          this._dispatchFrame(now);
         } else if (msg.type === 'error') {
           this._workerBusy = false;
           console.warn('[VisionManager] Worker error:', msg.error);
@@ -258,6 +274,10 @@ export class VisionManager {
     this.activeMode = mode;
     if (this.worker) {
       this.worker.postMessage({ type: 'setMode', mode });
+    }
+    // Kick off dispatch immediately when new mode is activated
+    if (this._loopRunning && this._workerReady && !this._workerBusy) {
+      this._dispatchFrame(performance.now());
     }
   }
 
@@ -300,111 +320,122 @@ export class VisionManager {
   }
 
   /**
-   * CV capture loop — uses setTimeout instead of requestAnimationFrame so the
-   * interval is decoupled from the display vsync (60Hz).  This reduces idle
-   * CPU wake-ups from 60/s down to the actual target CV FPS (20–45/s) and
-   * keeps the Three.js rAF loop uncontested on the main thread.
-   *
-   * PIP preview is driven by a separate, slower rAF-based paint loop that only
-   * runs when the PIP element is visible.
+   * Dispatches the next video frame to the CV Worker.
+   * - Reactive: triggered as soon as worker finishes the previous frame.
+   * - Respects targetFps throttle settings (20/30/45/60 FPS).
+   * - Uses zero-copy VideoFrame where supported (Chrome/Edge/Safari).
+   */
+  _dispatchFrame(now = performance.now()) {
+    if (
+      !this._loopRunning ||
+      this._tabHidden ||
+      this._workerBusy ||
+      !this._workerReady ||
+      !this.worker ||
+      !this.activeMode ||
+      !this.video ||
+      this.video.readyState < 2
+    ) {
+      return;
+    }
+
+    // Target FPS throttling
+    const targetFps = this.settings.targetFps || 60;
+    const minInterval = 1000 / targetFps - 2; // 2ms tolerance for frame delivery
+    const elapsedSinceLast = now - this._lastSendTime;
+    if (elapsedSinceLast < minInterval) {
+      // Schedule dispatch for the remaining delay
+      if (!this._dispatchTimer) {
+        this._dispatchTimer = setTimeout(() => {
+          this._dispatchTimer = null;
+          this._dispatchFrame(performance.now());
+        }, Math.max(1, Math.round(minInterval - elapsedSinceLast)));
+      }
+      return;
+    }
+
+    if (this._dispatchTimer) {
+      clearTimeout(this._dispatchTimer);
+      this._dispatchTimer = null;
+    }
+
+    this._workerBusy = true;
+    this._lastSendTime = now;
+
+    if (typeof VideoFrame !== 'undefined') {
+      try {
+        const frame = new VideoFrame(this.video);
+        this.worker.postMessage(
+          { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
+          [frame]
+        );
+      } catch (e) {
+        this._workerBusy = false;
+      }
+    } else {
+      createImageBitmap(this.video)
+        .then((frame) => {
+          if (!this._loopRunning || !this._workerBusy) {
+            frame.close();
+            return;
+          }
+          this.worker.postMessage(
+            { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
+            [frame]
+          );
+        })
+        .catch(() => {
+          this._workerBusy = false;
+        });
+    }
+  }
+
+  /**
+   * CV capture loop:
+   * - Drives frame acquisition via requestVideoFrameCallback (rVFC) for exact hardware frame-sync.
+   * - Employs a 33ms watchdog timer for robust fallback on older browsers or dropped frames.
+   * - Completely eliminates the 16ms setTimeout quantization bottleneck.
+   * - Drives PIP preview with a separate ~22 FPS rAF paint loop.
    */
   _startCaptureLoop() {
     if (this._loopRunning) return;
     this._loopRunning = true;
 
-    // ── CV capture tick (setTimeout-based, runs at targetFps) ──────────────
-    const supportsVideoFrame = typeof VideoFrame !== 'undefined';
-
-    const captureTick = supportsVideoFrame
-      // ── Fast path: VideoFrame is zero-copy and fully synchronous.
-      // No await, no GPU blit stall, no microtask delay — the frame reference
-      // is transferred to the worker immediately, tightening the capture→inference
-      // loop and making the setTimeout interval far more precise.
-      ? () => {
-          if (!this._loopRunning) return;
-
-          const now = performance.now();
-
-          if (this._workerBusy && now - this._lastSendTime > 1000) {
-            this._workerBusy = false;
-          }
-
-          if (
-            !this._tabHidden &&
-            !this._workerBusy &&
-            this._workerReady &&
-            this.worker &&
-            this.activeMode &&
-            this.video &&
-            this.video.readyState >= 2
-          ) {
-            this._workerBusy = true;
-            this._lastSendTime = now;
-
-            try {
-              const frame = new VideoFrame(this.video);
-              this.worker.postMessage(
-                { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
-                [frame]
-              );
-            } catch (e) {
-              this._workerBusy = false;
-            }
-          }
-
-          if (!this._loopRunning) return;
-          // Poll at 16ms (≈60Hz) regardless of targetFps — _workerBusy prevents
-          // double-sending. This eliminates the "missed tick" FPS halving when
-          // inference occasionally runs just over the targetFps interval.
-          this._captureTimer = setTimeout(captureTick, 16);
+    // 1. Primary frame sync via requestVideoFrameCallback (rVFC) if available
+    if (this.video && 'requestVideoFrameCallback' in this.video) {
+      const onVideoFrame = (now) => {
+        if (!this._loopRunning) return;
+        this._dispatchFrame(now);
+        if (this.video && 'requestVideoFrameCallback' in this.video) {
+          this._rvfcId = this.video.requestVideoFrameCallback(onVideoFrame);
         }
-      // ── Fallback path: createImageBitmap (older browsers without VideoFrame)
-      : async () => {
-          if (!this._loopRunning) return;
+      };
+      this._rvfcId = this.video.requestVideoFrameCallback(onVideoFrame);
+    }
 
-          const now = performance.now();
+    // 2. Watchdog heartbeat (every 33ms) — ensures continuous operation,
+    // recovers from transient worker stalls, and provides fallback if rVFC is unavailable.
+    const watchdogTick = () => {
+      if (!this._loopRunning) return;
+      const now = performance.now();
+      if (this._workerBusy && now - this._lastSendTime > 1000) {
+        this._workerBusy = false;
+      }
+      this._dispatchFrame(now);
+      this._watchdogTimer = setTimeout(watchdogTick, 33);
+    };
+    this._watchdogTimer = setTimeout(watchdogTick, 33);
 
-          if (this._workerBusy && now - this._lastSendTime > 1000) {
-            this._workerBusy = false;
-          }
+    // Initial frame dispatch kick-off
+    this._dispatchFrame(performance.now());
 
-          if (
-            !this._tabHidden &&
-            !this._workerBusy &&
-            this._workerReady &&
-            this.worker &&
-            this.activeMode &&
-            this.video &&
-            this.video.readyState >= 2
-          ) {
-            this._workerBusy = true;
-            this._lastSendTime = now;
-
-            try {
-              const frame = await createImageBitmap(this.video);
-              this.worker.postMessage(
-                { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
-                [frame]
-              );
-            } catch (e) {
-              this._workerBusy = false;
-            }
-          }
-
-          if (!this._loopRunning) return;
-          this._captureTimer = setTimeout(captureTick, 16);
-        };
-
-    // ── PIP paint tick (rAF-based, ~22 FPS cap, skips when PIP hidden) ─────
+    // 3. PIP paint tick (rAF-based, ~22 FPS cap, skips when PIP hidden)
     const paintTick = () => {
       if (!this._loopRunning) return;
       const now = performance.now();
       this._renderPreview(now);
       requestAnimationFrame(paintTick);
     };
-
-    // Kick off both loops
-    this._captureTimer = setTimeout(captureTick, 16);
     requestAnimationFrame(paintTick);
   }
 
@@ -589,6 +620,9 @@ export class VisionManager {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('interrun_cv_fps', String(this.settings.targetFps));
       }
+      if (this._loopRunning && this._workerReady && !this._workerBusy) {
+        this._dispatchFrame(performance.now());
+      }
     }
     if (newSettings.pipMode) {
       this.settings.pipMode = newSettings.pipMode;
@@ -612,6 +646,18 @@ export class VisionManager {
     if (this._captureTimer) {
       clearTimeout(this._captureTimer);
       this._captureTimer = null;
+    }
+    if (this._dispatchTimer) {
+      clearTimeout(this._dispatchTimer);
+      this._dispatchTimer = null;
+    }
+    if (this._watchdogTimer) {
+      clearTimeout(this._watchdogTimer);
+      this._watchdogTimer = null;
+    }
+    if (this._rvfcId && this.video && 'cancelVideoFrameCallback' in this.video) {
+      this.video.cancelVideoFrameCallback(this._rvfcId);
+      this._rvfcId = null;
     }
 
     // Remove page visibility listener
