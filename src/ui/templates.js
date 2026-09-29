@@ -5,6 +5,9 @@
 export function getHUDHtml(t, i18n, state = {}) {
   const isMuted = !!state.soundMuted;
   const settings = state.settings || {};
+  const isTouch = (typeof window !== 'undefined') && (('ontouchstart' in window) || (navigator.maxTouchPoints > 0));
+  const stage0Badge = isTouch ? t('stage.0.badge.touch') : t('stage.0.badge');
+  const stage0Hint = isTouch ? t('stage.0.hint.touch') : t('stage.0.hint');
 
   return `
     <!-- In-Game HUD -->
@@ -23,7 +26,7 @@ export function getHUDHtml(t, i18n, state = {}) {
               <div class="hud-value hud-coin-val" id="hud-coins">0</div>
             </div>
 
-            <div id="stage-badge">${t('stage.0.badge')}</div>
+            <div id="stage-badge">${stage0Badge}</div>
           </div>
 
           <!-- Action buttons -->
@@ -81,7 +84,7 @@ export function getHUDHtml(t, i18n, state = {}) {
         </div>
       </div>
 
-      <div id="control-hint" class="visible">${t('stage.0.hint')}</div>
+      <div id="control-hint" class="visible">${stage0Hint}</div>
 
       <!-- Bottom-Left Metrics: Game FPS & Vision Worker CV -->
       <div id="hud-bottom-left">
@@ -90,19 +93,19 @@ export function getHUDHtml(t, i18n, state = {}) {
           <span class="hud-fps-label">FPS</span>
         </div>
 
-        <div class="hud-panel hud-cv-panel" id="hud-cv-panel" style="display:none;">
+        <div class="hud-panel hud-cv-panel" id="hud-cv-panel" style="display:none;" title="Camera & AI Vision Performance">
           <span style="font-size:13px;">👁️</span>
+          <span id="hud-cam-fps" class="hud-cv-ms" style="color:rgba(255,255,255,0.65); font-size:10px; margin-right:2px;"></span>
           <span id="hud-cv-fps" class="hud-cv-num">--</span>
           <span class="hud-fps-label">FPS</span>
           <span id="hud-cv-ms" class="hud-cv-ms"></span>
-          <span class="hud-fps-label">CV</span>
         </div>
       </div>
 
       <!-- Webcam PIP -->
-      <div id="webcam-pip" class="hidden" style="position:absolute; bottom:20px; right:20px; width:200px; height:150px; background:rgba(0,0,0,0.85); border:1px solid rgba(0,229,255,0.4); border-radius:12px; overflow:hidden; z-index:40; pointer-events:all; box-shadow:0 8px 32px rgba(0,0,0,0.6);">
-        <canvas id="webcam-canvas" style="width:100%; height:100%; object-fit:cover; display:block;"></canvas>
-        <div id="webcam-status" style="position:absolute; bottom:4px; left:6px; right:6px; font-size:9px; font-weight:700; color:#00e5ff; text-transform:uppercase; letter-spacing:1px; text-shadow:0 1px 3px #000; text-align:center;" data-i18n="hud.cam.active">${t('hud.cam.active')}</div>
+      <div id="webcam-pip" class="hidden" style="position:absolute; bottom:20px; right:20px; width:200px; height:150px; background:rgba(0,0,0,0.85); border:1px solid rgba(0,229,255,0.4); border-radius:12px; overflow:hidden; z-index:40; pointer-events:all; box-shadow:0 8px 32px rgba(0,0,0,0.6); box-sizing:border-box;">
+        <canvas id="webcam-canvas" style="width:100%; height:100%; object-fit:contain; background:#080d1a; display:block;"></canvas>
+        <div id="webcam-status" style="position:absolute; bottom:3px; left:4px; right:4px; font-size:8px; font-weight:700; color:#00e5ff; text-transform:uppercase; letter-spacing:0.8px; text-shadow:0 1px 3px #000; text-align:center; padding:1px 4px; background:rgba(0,0,0,0.45); border-radius:4px; pointer-events:none;" data-i18n="hud.cam.active">${t('hud.cam.active')}</div>
       </div>
 
       <!-- Stage Transition Countdown Banner -->

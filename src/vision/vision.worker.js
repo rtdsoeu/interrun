@@ -109,10 +109,11 @@ let fgFistFrames = 0;
 // HandSwipe (Stage 5)
 // Kinematic displacement + velocity detection with recoil-lockout algorithm:
 // - Maintains a sliding trajectory trail (hsTrail) spanning ~220ms of 5-point palm centroid positions.
+// - 10 FPS Zone-Crossing Impulse: instant 1-frame lane changes when moving from center to outer zones.
+// - Immediate Step-Delta: catches sudden intra-zone hand flicks between consecutive frames.
+// - Exit Flick: registers swipe if hand moved toward an edge and vanished in the next frame due to motion blur.
 // - Rejects tracking outliers (sudden jumps > 35% of frame in < 40ms).
-// - Validates displacement (|Δx| >= 0.12 or |Δy| >= 0.10) and speed (|v| >= 0.70).
-// - Enforces axis dominance: |dominant_delta| > 1.35 * |secondary_delta|.
-// - Anti-recoil protection: blocks reverse swipes on the same axis for 400ms after a swipe commits,
+// - Anti-recoil protection: blocks reverse swipes on the same axis for 300-380ms after a swipe commits,
 //   completely preventing the player's return hand motion from registering as a false counter-swipe.
 // - Provides monotonic hsSwipeCounter ID so the main thread consumes each swipe event exactly once.
 let hsTrail = [];                // [{ x, y, time }] recent palm centroid positions
@@ -120,6 +121,9 @@ let hsLastSwipe = null;          // last committed swipe direction ('left'|'righ
 let hsLastSwipeTime = -Infinity; // timestamp of last committed swipe
 let hsSwipeCounter = 0;          // monotonic ID for swipe events
 let hsDebugTimer = 0;            // countdown timer for PIP visual confirmation
+let hsPrevFrameTime = 0;         // previous frame timestamp for delta measurement
+let hsAvgFrameInterval = 33;     // smoothed frame arrival interval in ms (auto-detects low-light FPS)
+let hsLastKnownPos = null;       // { x, y, time, vx, vy } for Exit Flick detection
 
 // Zone hysteresis — prevents jitter when hand/face hovers near a zone boundary.
 // A zone transition is committed only when the point crosses (threshold ± HYSTERESIS_BAND).
@@ -138,6 +142,9 @@ function resetCalibration() {
   hsLastSwipe = null;
   hsLastSwipeTime = -Infinity;
   hsDebugTimer = 0;
+  hsPrevFrameTime = 0;
+  hsAvgFrameInterval = 33;
+  hsLastKnownPos = null;
   // FingerGesture
   fgFistFrames = 0;
   // Zone hysteresis
@@ -424,6 +431,7 @@ self.onmessage = async (e) => {
 
       try {
         let state = null;
+        const inferStart = performance.now();
 
         if (mode === 'face' && faceLandmarker) {
           state = processFace(frame, timestamp);
@@ -441,7 +449,8 @@ self.onmessage = async (e) => {
           state = processHandSwipe(frame, timestamp);
         }
 
-        self.postMessage({ type: 'processed', state });
+        const inferDuration = Math.round(performance.now() - inferStart);
+        self.postMessage({ type: 'processed', state, inferDuration });
       } catch (err) {
         console.warn(`[VisionWorker] Error processing ${mode}:`, err);
         self.postMessage({ type: 'processed', state: null, error: err.message });
@@ -933,20 +942,96 @@ function processHandSwipe(bitmap, timestamp) {
     return state;
   }
 
+  // Measure empirical frame arrival delta to detect low-light webcam throttling (e.g. 10 FPS)
+  if (hsPrevFrameTime > 0) {
+    const rawInterval = timestamp - hsPrevFrameTime;
+    if (rawInterval > 5 && rawInterval < 1000) {
+      hsAvgFrameInterval = hsAvgFrameInterval * 0.8 + rawInterval * 0.2;
+    }
+  }
+  hsPrevFrameTime = timestamp;
+
+  // Frame interval >= 48ms indicates <= 21 FPS (low-light auto-exposure mode)
+  const isLowFps = hsAvgFrameInterval >= 48;
+
   const results = handLandmarker.detectForVideo(bitmap, timestamp);
 
+  // ---------------------------------------------------------------------------
+  // HAND LOST BRANCH — Handle Exit Flicks and trail cleanup
+  // ---------------------------------------------------------------------------
   if (!(results?.landmarks?.length > 0)) {
-    // Hand lost — clear trail after 200ms
-    if (hsTrail.length > 0 && timestamp - hsTrail[hsTrail.length - 1].time > 200) {
-      hsTrail = [];
+    let detectedSwipe = null;
+
+    // EXIT FLICK: If hand was moving rapidly towards an edge and vanished in the next
+    // frame due to motion blur or leaving the camera frame, trigger the completed swipe.
+    if (hsLastKnownPos && (timestamp - hsLastKnownPos.time) <= Math.max(260, hsAvgFrameInterval * 2.5)) {
+      const p = hsLastKnownPos;
+      if (p.vx < -0.32 || (p.x < 0.32 && p.vx < -0.10)) {
+        detectedSwipe = 'left';
+      } else if (p.vx > 0.32 || (p.x > 0.68 && p.vx > 0.10)) {
+        detectedSwipe = 'right';
+      } else if (p.vy < -0.32 || (p.y < 0.30 && p.vy < -0.10)) {
+        detectedSwipe = 'up';
+      } else if (p.vy > 0.32 || (p.y > 0.70 && p.vy > 0.10)) {
+        detectedSwipe = 'down';
+      }
     }
+
+    if (detectedSwipe) {
+      const timeSinceLast = timestamp - hsLastSwipeTime;
+      const isOpposite =
+        (hsLastSwipe === 'left'  && detectedSwipe === 'right') ||
+        (hsLastSwipe === 'right' && detectedSwipe === 'left')  ||
+        (hsLastSwipe === 'up'    && detectedSwipe === 'down')  ||
+        (hsLastSwipe === 'down'  && detectedSwipe === 'up');
+
+      const isSame = (hsLastSwipe === detectedSwipe);
+      const oppositeLockout = isLowFps ? Math.max(300, hsAvgFrameInterval * 3.0) : 380;
+      const sameCooldown    = isLowFps ? Math.max(180, hsAvgFrameInterval * 1.8) : 200;
+      const orthoCooldown   = isLowFps ? Math.max(150, hsAvgFrameInterval * 1.5) : 170;
+
+      const isAllowed = isOpposite ? (timeSinceLast >= oppositeLockout)
+                      : isSame     ? (timeSinceLast >= sameCooldown)
+                                   : (timeSinceLast >= orthoCooldown);
+
+      if (isAllowed) {
+        hsSwipeCounter++;
+        hsLastSwipe = detectedSwipe;
+        hsLastSwipeTime = timestamp;
+        hsTrail.length = 0;
+        hsLastKnownPos = null;
+        hsDebugTimer = 550;
+        state.hsSwipe = detectedSwipe;
+        state.hsSwipeId = hsSwipeCounter;
+        state.hsSource = 'hand';
+        const swipeIcons = {
+          left:  '👋 SWIPE ◀ LEFT',
+          right: '👋 SWIPE RIGHT ▶',
+          up:    '👋 SWIPE ▲ JUMP',
+          down:  '👋 SWIPE ▼ SLIDE'
+        };
+        state.debugText = swipeIcons[detectedSwipe] || '👋 Swipe exit';
+        return state;
+      }
+    }
+
+    // Dynamic timeout to clean up stale trail
+    const handLostTimeout = Math.min(600, Math.max(250, hsAvgFrameInterval * 3.5));
+    if (hsTrail.length > 0 && timestamp - hsTrail[hsTrail.length - 1].time > handLostTimeout) {
+      hsTrail.length = 0;
+      hsLastKnownPos = null;
+    }
+
     state.hsSource  = null;
     state.hsSwipe   = null;
     state.hsSwipeId = hsSwipeCounter;
-    state.debugText = '👋 Show hand in camera';
+    state.debugText = isLowFps ? '👋 Hand lost (Hold steady in light)' : '👋 Show hand in camera';
     return state;
   }
 
+  // ---------------------------------------------------------------------------
+  // HAND DETECTED BRANCH
+  // ---------------------------------------------------------------------------
   const hand = results.landmarks[0];
   const pc = palmCenter(hand);
   const handX = 1 - pc.x; // mirrored: 0 = player-left, 1 = player-right
@@ -955,38 +1040,71 @@ function processHandSwipe(bitmap, timestamp) {
   state.hsSource  = 'hand';
   state.hsHandPos = { x: handX, y: handY };
 
-  // Outlier rejection: if hand jumped excessively fast across the frame, ignore
+  // Outlier rejection: if hand jumped excessively fast across the frame, ignore glitch
   const lastPoint = hsTrail.length > 0 ? hsTrail[hsTrail.length - 1] : null;
   if (lastPoint) {
     const jumpDt = (timestamp - lastPoint.time) / 1000;
     if (jumpDt > 0 && jumpDt < 0.05) {
       const jumpDist = Math.hypot(handX - lastPoint.x, handY - lastPoint.y);
       if (jumpDist > 0.35) {
-        // Glitch or tracking teleport — reset trail to current point
-        hsTrail = [{ x: handX, y: handY, time: timestamp }];
+        hsTrail.length = 0;
+        hsTrail.push({ x: handX, y: handY, time: timestamp });
       }
     }
   }
 
-  // Push new point and prune old entries with an O(1) index pointer.
-  // Using Array.shift() in a while-loop is O(n) per frame; instead we find
-  // the first index still within the 220ms window and slice once.
+  // Push new point and prune old entries according to adaptive sliding window
   hsTrail.push({ x: handX, y: handY, time: timestamp });
-  const cutoff = timestamp - 220;
+  const cutoffWindow = Math.min(480, Math.max(220, hsAvgFrameInterval * 3.6));
+  const cutoff = timestamp - cutoffWindow;
   let startIdx = 0;
   while (startIdx < hsTrail.length - 1 && hsTrail[startIdx].time < cutoff) {
     startIdx++;
   }
-  if (startIdx > 0) hsTrail = hsTrail.slice(startIdx);
+  if (startIdx > 0) {
+    hsTrail.splice(0, startIdx);
+  }
 
   let detectedSwipe = null;
 
-  // Evaluate swipe if trail has sufficient duration (>= 60ms) and sample count (>= 3)
-  if (hsTrail.length >= 3) {
+  // 1. IMMEDIATE STEP-DELTA (Inter-frame sudden displacement, catches quick intra-frame flicks)
+  if (!detectedSwipe && hsTrail.length >= 2) {
+    const prevPoint = hsTrail[hsTrail.length - 2];
+    const stepDt = (timestamp - prevPoint.time) / 1000;
+    if (stepDt > 0.02 && stepDt <= Math.max(0.28, (hsAvgFrameInterval * 2.2) / 1000)) {
+      const stepDx = handX - prevPoint.x;
+      const stepDy = handY - prevPoint.y;
+      const stepVx = stepDx / stepDt;
+      const stepVy = stepDy / stepDt;
+
+      const absStepDx = Math.abs(stepDx);
+      const absStepDy = Math.abs(stepDy);
+      const absStepVx = Math.abs(stepVx);
+      const absStepVy = Math.abs(stepVy);
+
+      // Calibrated stroke length: slightly longer required distance (~13-15% of frame)
+      const minStepDx = isLowFps ? 0.13 : 0.15;
+      const minStepDy = isLowFps ? 0.12 : 0.14;
+      const minStepVx = isLowFps ? 0.45 : 0.65;
+      const minStepVy = isLowFps ? 0.40 : 0.60;
+      const domRatio  = isLowFps ? 1.25 : 1.35;
+
+      if (absStepDx >= minStepDx && absStepVx >= minStepVx && absStepDx > absStepDy * domRatio) {
+        detectedSwipe = stepDx < 0 ? 'left' : 'right';
+      } else if (absStepDy >= minStepDy && absStepVy >= minStepVy && absStepDy > absStepDx * domRatio) {
+        detectedSwipe = stepDy < 0 ? 'up' : 'down';
+      }
+    }
+  }
+
+  // 2. MULTI-SAMPLE SLIDING WINDOW (Trajectory integration for fluid full swipes across ~100-300ms)
+  if (!detectedSwipe && hsTrail.length >= (isLowFps ? 2 : 3)) {
     const oldest = hsTrail[0];
     const dt = (timestamp - oldest.time) / 1000;
+    const minDt = Math.max(0.04, (hsAvgFrameInterval * 0.7) / 1000);
+    const maxDt = Math.min(0.50, Math.max(0.26, (hsAvgFrameInterval * 3.8) / 1000));
 
-    if (dt >= 0.06 && dt <= 0.25) {
+    if (dt >= minDt && dt <= maxDt) {
       const dx = handX - oldest.x;
       const dy = handY - oldest.y;
       const vx = dx / dt;
@@ -997,20 +1115,24 @@ function processHandSwipe(bitmap, timestamp) {
       const absVx = Math.abs(vx);
       const absVy = Math.abs(vy);
 
-      // Horizontal swipe check:
-      // Minimum distance: 12% of screen width; velocity >= 0.70 screens/sec; X dominates Y by 1.35x
-      if (absDx >= 0.12 && absVx >= 0.70 && absDx > absDy * 1.35) {
+      // Calibrated full swipe length: ~15-18% of frame width
+      const minDx = isLowFps ? 0.15 : 0.18;
+      const minDy = isLowFps ? 0.13 : 0.16;
+      const minVx = isLowFps ? 0.40 : 0.60;
+      const minVy = isLowFps ? 0.35 : 0.55;
+      const domRatio = isLowFps ? 1.25 : 1.35;
+
+      if (absDx >= minDx && absVx >= minVx && absDx > absDy * domRatio) {
         detectedSwipe = dx < 0 ? 'left' : 'right';
-      }
-      // Vertical swipe check:
-      // Minimum distance: 10% of screen height; velocity >= 0.65 screens/sec; Y dominates X by 1.35x
-      else if (absDy >= 0.10 && absVy >= 0.65 && absDy > absDx * 1.35) {
-        detectedSwipe = dy < 0 ? 'up' : 'down'; // dy < 0 is upward motion
+      } else if (absDy >= minDy && absVy >= minVy && absDy > absDx * domRatio) {
+        detectedSwipe = dy < 0 ? 'up' : 'down';
       }
     }
   }
 
-  // If a candidate swipe is detected, validate against cooldown and recoil lockout rules
+  // ---------------------------------------------------------------------------
+  // SWIPE VALIDATION (Cooldowns and Anti-Recoil Lockout)
+  // ---------------------------------------------------------------------------
   if (detectedSwipe) {
     const timeSinceLast = timestamp - hsLastSwipeTime;
     let isAllowed = false;
@@ -1023,22 +1145,24 @@ function processHandSwipe(bitmap, timestamp) {
 
     const isSame = (hsLastSwipe === detectedSwipe);
 
+    const oppositeLockout = isLowFps ? Math.max(300, hsAvgFrameInterval * 3.0) : 380;
+    const sameCooldown    = isLowFps ? Math.max(180, hsAvgFrameInterval * 1.8) : 200;
+    const orthoCooldown   = isLowFps ? Math.max(150, hsAvgFrameInterval * 1.5) : 170;
+
     if (isOpposite) {
-      // Recoil protection: opposite direction lockout for 400ms
-      isAllowed = timeSinceLast >= 400;
+      isAllowed = timeSinceLast >= oppositeLockout;
     } else if (isSame) {
-      // Same direction cooldown: 220ms (allows fast double-swipes across lanes)
-      isAllowed = timeSinceLast >= 220;
+      isAllowed = timeSinceLast >= sameCooldown;
     } else {
-      // Orthogonal direction (e.g. left then up/jump): 180ms for fluid combos
-      isAllowed = timeSinceLast >= 180;
+      isAllowed = timeSinceLast >= orthoCooldown;
     }
 
     if (isAllowed) {
       hsSwipeCounter++;
       hsLastSwipe = detectedSwipe;
       hsLastSwipeTime = timestamp;
-      hsTrail = []; // Flush trail immediately so recoil motion doesn't build up
+      hsTrail.length = 0; // Flush trail immediately so recoil motion doesn't build up
+      hsLastKnownPos = null;
       hsDebugTimer = 550; // Visual feedback timer for HUD/PIP
       state.hsSwipe = detectedSwipe;
       state.hsSwipeId = hsSwipeCounter;
@@ -1046,6 +1170,20 @@ function processHandSwipe(bitmap, timestamp) {
       detectedSwipe = null;
     }
   }
+
+
+  // Calculate current velocity for exit flick tracking
+  let curVx = 0;
+  let curVy = 0;
+  if (hsTrail.length >= 2) {
+    const pPrev = hsTrail[hsTrail.length - 2];
+    const pDt = (timestamp - pPrev.time) / 1000;
+    if (pDt > 0.01) {
+      curVx = (handX - pPrev.x) / pDt;
+      curVy = (handY - pPrev.y) / pDt;
+    }
+  }
+  hsLastKnownPos = { x: handX, y: handY, time: timestamp, vx: curVx, vy: curVy };
 
   // Update visual debug timer
   if (hsDebugTimer > 0) {
@@ -1058,7 +1196,7 @@ function processHandSwipe(bitmap, timestamp) {
     };
     state.debugText = swipeIcons[hsLastSwipe] || '👋 Tracking hand...';
   } else {
-    state.debugText = '👋 Wave hand (← → ↑ ↓)';
+    state.debugText = isLowFps ? '👋 Wave hand (10-15 FPS Low-light)' : '👋 Wave hand (← → ↑ ↓)';
   }
 
   state.hsSwipeId = hsSwipeCounter;

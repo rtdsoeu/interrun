@@ -507,17 +507,18 @@ export class Runner {
 
     // Shift point history backwards
     for (let i = this._trailHistory.length - 1; i > 0; i--) {
-      this._trailHistory[i].x = this._trailHistory[i - 1].x;
-      this._trailHistory[i].y = this._trailHistory[i - 1].y;
-      this._trailHistory[i].z = this._trailHistory[i - 1].z + 0.3; // move backwards
+      const curr = this._trailHistory[i];
+      const prev = this._trailHistory[i - 1];
+      curr.x = prev.x;
+      curr.y = prev.y;
+      curr.z = prev.z + 0.3; // move backwards
     }
 
-    // New point at heels
-    this._trailHistory[0] = {
-      x: this.pos.x + (Math.random() - 0.5) * 0.2,
-      y: this.pos.y + 0.1,
-      z: this.pos.z + 0.2
-    };
+    // New point at heels (zero-allocation in-place mutation)
+    const p0 = this._trailHistory[0];
+    p0.x = this.pos.x + (Math.random() - 0.5) * 0.2;
+    p0.y = this.pos.y + 0.1;
+    p0.z = this.pos.z + 0.2;
 
     const posAttr = this._trailParticles.geometry.attributes.position;
     for (let i = 0; i < this._trailHistory.length; i++) {

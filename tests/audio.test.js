@@ -118,6 +118,40 @@ describe('MusicPlayer', () => {
     await player.prevTrack();
     expect(player.trackIndex).toBe(2);
   });
+
+  it('does NOT restart already playing track when play() or unlock() is called repeatedly on user interaction', async () => {
+    await player.play('menu');
+    expect(player.isPlaying).toBe(true);
+
+    // Simulate playback advancing to 15 seconds
+    player._audio.currentTime = 15.0;
+
+    // Simulate user interaction: clicking buttons, pressing keys
+    player.unlock();
+    expect(player._audio.currentTime).toBe(15.0); // must NOT reset to 0
+
+    // Repeated play() call with same or different mode
+    await player.play('game');
+    expect(player._audio.currentTime).toBe(15.0); // must NOT reset to 0
+    expect(player.mode).toBe('game');
+
+    // Attach audio context mid-stream
+    const mockCtx = {
+      currentTime: 1.0,
+      state: 'running',
+      createGain: () => ({
+        connect: () => {},
+        gain: { setValueAtTime: () => {}, setTargetAtTime: () => {}, cancelScheduledValues: () => {}, value: 1.0 }
+      }),
+      createMediaElementSource: () => ({ connect: () => {} })
+    };
+    player.attachAudioContext(mockCtx);
+    expect(player._audio.currentTime).toBe(15.0); // must NOT reset to 0
+
+    // Repeated unlock after attach
+    player.unlock();
+    expect(player._audio.currentTime).toBe(15.0); // must NOT reset to 0
+  });
 });
 
 describe('SoundFx integration with MusicPlayer', () => {

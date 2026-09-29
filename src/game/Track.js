@@ -226,11 +226,16 @@ export class Track {
     this._materials.rail.emissive.setHex(theme.railColor);
     this._materials.sleeper.color.setHex(theme.sleeperColor);
 
-    // Rebuild side scenery in all chunks
+    // Rebuild side scenery in all chunks with proper resource disposal
     this.chunks.forEach(chunk => {
       const oldDecor = chunk.getObjectByName('sideDecor');
       if (oldDecor) {
         chunk.remove(oldDecor);
+        oldDecor.traverse(child => {
+          if (child.isMesh) {
+            child.geometry?.dispose();
+          }
+        });
       }
       const newDecor = new THREE.Group();
       newDecor.name = 'sideDecor';
@@ -240,8 +245,6 @@ export class Track {
   }
 
   update(dt, speed) {
-    const totalSpan = this.chunkLength * this.chunkCount;
-
     // Move all chunks towards camera (+Z)
     for (let i = 0; i < this.chunks.length; i++) {
       const chunk = this.chunks[i];
@@ -256,15 +259,8 @@ export class Track {
             minZ = this.chunks[j].position.z;
           }
         }
+        // Zero-allocation wrap: re-use existing chunk and meshes without recreating geometries
         chunk.position.z = minZ - this.chunkLength;
-
-        // Regenerate random side decorations
-        const oldDecor = chunk.getObjectByName('sideDecor');
-        if (oldDecor) chunk.remove(oldDecor);
-        const newDecor = new THREE.Group();
-        newDecor.name = 'sideDecor';
-        this._populateSideDecor(newDecor);
-        chunk.add(newDecor);
       }
     }
   }

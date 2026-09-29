@@ -33,11 +33,14 @@ export class MusicPlayer {
     this._unlocked = false;
     this._isFadingTrack = false;
 
+    // Web Audio API integration (hardware DSP gain ramps, 0% CPU, 0 WASAPI IPC)
+    this._ctx = null;
+    this._bgmGain = null;
+    this._mediaSourceNode = null;
+    this._fadeTimer = null;
+
     // Track change callback for UI (title, index, total)
     this.onTrackChange = null;
-
-    // Internal fade animation tracker
-    this._fadeRaf = null;
 
     // Initialize native HTMLAudioElement
     this._audio = null;
@@ -48,6 +51,28 @@ export class MusicPlayer {
 
     // Asynchronously discover all audio files in public/audio/
     this.refreshPlaylist();
+  }
+
+  /**
+   * Attaches a unified Web Audio context from SoundFx.
+   * Connects the continuous HTMLAudioElement directly into the Web Audio graph via
+   * createMediaElementSource for hardware DSP volume curves without interrupting playback.
+   */
+  attachAudioContext(ctx, masterGain = null) {
+    if (!ctx || this._ctx === ctx) return;
+    this._ctx = ctx;
+    try {
+      this._bgmGain = ctx.createGain();
+      this._bgmGain.connect(masterGain || ctx.destination);
+      this._bgmGain.gain.setValueAtTime(this._computeTargetVolume(), ctx.currentTime);
+
+      if (this._audio && typeof ctx.createMediaElementSource === 'function' && !this._mediaSourceNode) {
+        this._mediaSourceNode = ctx.createMediaElementSource(this._audio);
+        this._mediaSourceNode.connect(this._bgmGain);
+      }
+    } catch (e) {
+      console.warn('[MusicPlayer] Failed to attach Web Audio graph:', e);
+    }
   }
 
   get currentTrackUrl() {
@@ -73,18 +98,18 @@ export class MusicPlayer {
       // If playlist has multiple tracks, don't single-track loop; handle 'ended' for smooth crossfade
       this._audio.loop = (this.playlist.length <= 1);
 
-      // When a track finishes, smoothly fade down and switch to the next track
+      // When a track finishes, switch to the next track
       this._audio.addEventListener('ended', () => {
-        this.nextTrack();
+        if (this.isPlaying && !this._isFadingTrack) {
+          this.nextTrack();
+        }
       });
 
       // Error fallback
       this._audio.addEventListener('error', () => {
-        // If current track failed and there are more tracks, try next
         if (this.playlist.length > 1) {
           this.nextTrack();
         } else if (this.currentTrackUrl.endsWith('.wav')) {
-          // Try mp3 fallback
           const fallback = '/audio/bgm.mp3';
           this.playlist[0] = fallback;
           this._audio.src = fallback;
@@ -113,7 +138,6 @@ export class MusicPlayer {
         if (Array.isArray(files) && files.length > 0) {
           const prevUrl = this.currentTrackUrl;
           this.playlist = files;
-          // Maintain current track position if it still exists
           const existingIdx = this.playlist.indexOf(prevUrl);
           if (existingIdx !== -1) {
             this.trackIndex = existingIdx;
@@ -148,8 +172,12 @@ export class MusicPlayer {
 
   unlock() {
     this._unlocked = true;
-    if (this.isPlaying && this._audio && !this.muted) {
-      this._audio.play().catch(() => {});
+    if (this._ctx && this._ctx.state === 'suspended') {
+      this._ctx.resume().catch(() => {});
+    }
+    // Only start if supposed to be playing but paused (e.g. initial autoplay blocked by browser)
+    if (this.isPlaying && !this.muted && this._audio && this._audio.paused) {
+      this.play(this.mode);
     }
   }
 
@@ -165,11 +193,9 @@ export class MusicPlayer {
       case 'menu':
       case 'game':
       case 'transition':
-        // Identical parity across all standard gameplay and menu screens
         modeMultiplier = 1.0;
         break;
       case 'dead':
-        // Mild ducking upon crash
         modeMultiplier = 0.35;
         break;
       default:
@@ -180,56 +206,59 @@ export class MusicPlayer {
   }
 
   /**
-   * Smoothly fades audio volume to target over given duration (ms).
+   * Smoothly fades audio volume without blocking or freezing the main thread:
+   * - Uses Web Audio DSP gain ramp when attached (0% JS, 0 IPC calls).
+   * - Uses non-blocking 4-step discrete timer for HTMLAudioElement fallback.
    */
-  _fadeVolumeTo(targetVol, duration = 300) {
+  _fadeVolumeTo(targetVol, duration = 200) {
     return new Promise((resolve) => {
+      const target = Math.max(0, Math.min(1, targetVol));
+
+      // 1. Native C++ Web Audio DSP gain ramp (0% JS, 0 IPC)
+      if (this._bgmGain && this._ctx && this._ctx.state === 'running') {
+        const now = this._ctx.currentTime;
+        this._bgmGain.gain.cancelScheduledValues(now);
+        this._bgmGain.gain.setValueAtTime(this._bgmGain.gain.value, now);
+        this._bgmGain.gain.setTargetAtTime(target, now, Math.max(0.02, duration / 2500));
+        if (this._audio) this._audio.volume = target;
+        resolve();
+        return;
+      }
+
+      // 2. HTML5 Audio element fallback (4-step non-blocking timer to avoid 60 FPS IPC thrashing)
       if (!this._audio) {
         resolve();
         return;
       }
 
-      if (typeof requestAnimationFrame === 'undefined') {
-        this._audio.volume = targetVol;
-        resolve();
-        return;
-      }
-
-      if (this._fadeRaf && typeof cancelAnimationFrame !== 'undefined') {
-        cancelAnimationFrame(this._fadeRaf);
-        this._fadeRaf = null;
+      if (this._fadeTimer) {
+        clearInterval(this._fadeTimer);
+        this._fadeTimer = null;
       }
 
       const startVol = this._audio.volume;
-      const diff = targetVol - startVol;
-      if (Math.abs(diff) < 0.01) {
-        this._audio.volume = targetVol;
+      const diff = target - startVol;
+      if (Math.abs(diff) < 0.02 || duration <= 0) {
+        this._audio.volume = target;
         resolve();
         return;
       }
 
-      const startTime = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const steps = 4;
+      const stepDuration = Math.max(16, Math.floor(duration / steps));
+      let step = 0;
 
-      const step = (now) => {
-        const elapsed = now - startTime;
-        const progress = Math.min(1, elapsed / duration);
-        // Smooth S-curve (half cosine)
-        const factor = 0.5 - 0.5 * Math.cos(progress * Math.PI);
-        const current = startVol + diff * factor;
-        if (this._audio) {
-          this._audio.volume = Math.max(0, Math.min(1, current));
-        }
-
-        if (progress < 1) {
-          this._fadeRaf = requestAnimationFrame(step);
-        } else {
-          this._fadeRaf = null;
-          if (this._audio) this._audio.volume = targetVol;
+      this._fadeTimer = setInterval(() => {
+        step++;
+        if (step >= steps || !this._audio) {
+          clearInterval(this._fadeTimer);
+          this._fadeTimer = null;
+          if (this._audio) this._audio.volume = target;
           resolve();
+        } else {
+          this._audio.volume = Math.max(0, Math.min(1, startVol + diff * (step / steps)));
         }
-      };
-
-      this._fadeRaf = requestAnimationFrame(step);
+      }, stepDuration);
     });
   }
 
@@ -240,13 +269,16 @@ export class MusicPlayer {
     if (this._isFadingTrack) return;
     const target = this._computeTargetVolume();
     if (immediate) {
-      if (this._fadeRaf && typeof cancelAnimationFrame !== 'undefined') {
-        cancelAnimationFrame(this._fadeRaf);
-        this._fadeRaf = null;
+      if (this._fadeTimer) {
+        clearInterval(this._fadeTimer);
+        this._fadeTimer = null;
+      }
+      if (this._bgmGain && this._ctx) {
+        this._bgmGain.gain.setValueAtTime(target, this._ctx.currentTime);
       }
       if (this._audio) this._audio.volume = target;
     } else {
-      this._fadeVolumeTo(target, 250);
+      this._fadeVolumeTo(target, 200);
     }
   }
 
@@ -255,7 +287,7 @@ export class MusicPlayer {
    * @param {number} newIndex
    * @param {number} fadeDuration - duration of fade down and fade up in ms
    */
-  async switchTrack(newIndex, fadeDuration = 450) {
+  async switchTrack(newIndex, fadeDuration = 200) {
     if (!this.playlist.length) return;
     const targetIndex = ((newIndex % this.playlist.length) + this.playlist.length) % this.playlist.length;
 
@@ -267,12 +299,10 @@ export class MusicPlayer {
     const nextUrl = this.playlist[this.trackIndex];
     this._isFadingTrack = true;
 
-    // 1. Fade volume down to 0 ("эффект уменьшения звука")
-    if (this._audio && this.isPlaying && !this.muted) {
-      await this._fadeVolumeTo(0, fadeDuration);
-    }
+    // 1. Fade volume down
+    await this._fadeVolumeTo(0, fadeDuration);
 
-    // 2. Change audio source
+    // 2. Change audio source on element
     if (this._audio) {
       this._audio.src = nextUrl;
       this._audio.currentTime = 0;
@@ -280,13 +310,22 @@ export class MusicPlayer {
     }
 
     // 3. Play and fade volume back up to target
-    if (this.isPlaying && !this.muted && this._audio) {
-      const playPromise = this._audio.play();
-      if (playPromise) playPromise.catch(() => {});
+    if (this.isPlaying && !this.muted) {
+      if (this._audio) {
+        try {
+          await this._audio.play().catch(() => {});
+        } catch (_) {}
+      }
       const targetVolume = this._computeTargetVolume();
       await this._fadeVolumeTo(targetVolume, fadeDuration);
-    } else if (this._audio) {
-      this._audio.volume = this._computeTargetVolume();
+    } else {
+      const targetVolume = this._computeTargetVolume();
+      if (this._bgmGain && this._ctx) {
+        this._bgmGain.gain.setValueAtTime(targetVolume, this._ctx.currentTime);
+      }
+      if (this._audio && !this._mediaSourceNode) {
+        this._audio.volume = targetVolume;
+      }
     }
 
     this._isFadingTrack = false;
@@ -307,28 +346,44 @@ export class MusicPlayer {
     }
   }
 
-  play(mode = this.mode) {
+  async play(mode = this.mode) {
+    const prevMode = this.mode;
     this.mode = mode;
     this.isPlaying = true;
 
+    // If audio element is already actively playing, simply apply mode volume and do NOT restart!
+    if (this._audio && !this._audio.paused && !this._audio.ended) {
+      if (prevMode !== mode) {
+        this._applyVolume(false);
+      }
+      return;
+    }
+
     if (!this._audio) return;
     this._audio.muted = this.muted;
-    this._applyVolume(false);
 
-    const playPromise = this._audio.play();
-    if (playPromise) {
-      playPromise.catch(() => {
-        // Autoplay policy prevented playback until gesture
-      });
+    if (!this._mediaSourceNode) {
+      this._audio.volume = this._computeTargetVolume();
+    } else {
+      this._audio.volume = 1.0;
+      this._applyVolume(false);
     }
+
+    try {
+      const playPromise = this._audio.play();
+      if (playPromise) {
+        await playPromise.catch(() => {});
+      }
+    } catch (_) {}
+
     this._notifyTrackChange();
   }
 
   pause() {
     this.isPlaying = false;
-    if (this._fadeRaf && typeof cancelAnimationFrame !== 'undefined') {
-      cancelAnimationFrame(this._fadeRaf);
-      this._fadeRaf = null;
+    if (this._fadeTimer) {
+      clearInterval(this._fadeTimer);
+      this._fadeTimer = null;
     }
     if (this._audio) {
       this._audio.pause();

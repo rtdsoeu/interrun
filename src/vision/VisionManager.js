@@ -11,6 +11,19 @@ export const CV_RESOLUTION_PRESETS = {
   high: { width: 320, height: 240 }
 };
 
+// Static constants to prevent per-draw allocations in PIP canvas
+const ZONE_ACTION_COLORS = {
+  'top-L': '#6c63ff55', 'top-C': '#00e5ff55', 'top-R': '#6c63ff55',
+  'mid-L': '#00ff8844', 'mid-C': 'rgba(255,255,255,0.03)', 'mid-R': '#00ff8844',
+  'bot-L': '#ff6b3555', 'bot-C': '#ff6b3555', 'bot-R': '#ff6b3555'
+};
+
+const ZONE_LABELS = [
+  ['↑◀', '↑', '↑▶'],
+  ['◀',  '·', '▶' ],
+  ['↓◀', '↓', '↓▶']
+];
+
 export class VisionManager {
   constructor() {
     this.video = null;
@@ -47,12 +60,18 @@ export class VisionManager {
     this._supportsVideoFrame = typeof VideoFrame !== 'undefined';
     this._initPromise = null;
 
-    // CV FPS & Latency metrics
+    // Camera & CV Performance metrics
+    this.hardwareCamFps = 0;
+    this.realCamFps = 0;
     this.cvFps = 0;
     this.cvLatency = 0;
+    this.cvFrametime = 0;
+    this._camFrameCount = 0;
+    this._camFpsTimer = performance.now();
     this._cvFrameCount = 0;
     this._cvFpsTimer = performance.now();
-    this.onFpsUpdate = null; // callback(fps, latency)
+    this.onFpsUpdate = null;          // callback(cvFps, frametime, camFps)
+    this.onSettingsCalibrated = null; // callback(settings)
 
     // Recognition state (thread-safe O(1) read by game engine)
     this.currentState = {
@@ -140,7 +159,6 @@ export class VisionManager {
         if (!this.video) {
           this.video = document.createElement('video');
           this.video.setAttribute('playsinline', '');
-          this.video.setAttribute('webkit-playsinline', '');
           this.video.setAttribute('autoplay', '');
           this.video.setAttribute('muted', '');
           this.video.muted = true;
@@ -196,6 +214,19 @@ export class VisionManager {
           }
         }
 
+        // Progressive enhancement: hint continuous auto-exposure to avoid aggressive FPS drop in dark conditions
+        try {
+          const track = this.stream?.getVideoTracks()[0];
+          if (track && 'getCapabilities' in track) {
+            const caps = track.getCapabilities();
+            if (caps?.exposureMode?.includes('continuous')) {
+              track.applyConstraints({ advanced: [{ exposureMode: 'continuous' }] }).catch(() => {});
+            }
+          }
+        } catch {
+          // Non-critical capability check
+        }
+
         this.video.srcObject = this.stream;
         await new Promise((resolve) => {
           this.video.onloadedmetadata = async () => {
@@ -209,6 +240,9 @@ export class VisionManager {
             resolve();
           };
         });
+
+        // Run hardware camera FPS mini-benchmark and auto-configure settings
+        await this._benchmarkCameraFps();
 
         this.hasPermission = true;
         this.isReady = true;
@@ -276,7 +310,12 @@ export class VisionManager {
             this.currentState = msg.state;
           }
           const now = performance.now();
-          this.cvLatency = Math.round(now - this._lastSendTime);
+          const currentDuration = msg.inferDuration ?? Math.round(now - this._lastSendTime);
+          this.cvFrametime = this.cvFrametime === 0
+            ? currentDuration
+            : Math.round(this.cvFrametime * 0.75 + currentDuration * 0.25);
+          this.cvLatency = this.cvFrametime;
+
           this._cvFrameCount++;
           const elapsed = now - this._cvFpsTimer;
           if (elapsed >= 400) {
@@ -284,7 +323,7 @@ export class VisionManager {
             this._cvFrameCount = 0;
             this._cvFpsTimer = now;
             if (this.onFpsUpdate) {
-              this.onFpsUpdate(this.cvFps, this.cvLatency);
+              this.onFpsUpdate(this.cvFps, this.cvFrametime, this.realCamFps || this.hardwareCamFps);
             }
           }
           // Reactive dispatch: immediately pipeline the next frame as soon as worker finishes
@@ -315,6 +354,75 @@ export class VisionManager {
     if (this._loopRunning && this._workerReady && !this._workerBusy) {
       this._dispatchFrame(performance.now());
     }
+  }
+
+  /**
+   * Fast hardware camera FPS benchmark on initialization:
+   * Samples 10-12 video frames via requestVideoFrameCallback (~160-350ms)
+   * to determine real camera sensor delivery rate and auto-calibrate settings.
+   */
+  async _benchmarkCameraFps() {
+    if (!this.video) return;
+
+    let measuredFps = 30;
+    if ('requestVideoFrameCallback' in this.video) {
+      try {
+        measuredFps = await new Promise((resolve) => {
+          let frames = 0;
+          let firstTime = 0;
+          const targetFrames = 12;
+          const timeout = setTimeout(() => {
+            resolve(frames > 2 ? Math.round(((frames - 1) * 1000) / (performance.now() - firstTime)) : 30);
+          }, 600);
+
+          const sampleCb = (now) => {
+            if (frames === 0) firstTime = now;
+            frames++;
+            if (frames >= targetFrames) {
+              clearTimeout(timeout);
+              const duration = now - firstTime;
+              const fps = duration > 0 ? Math.round(((frames - 1) * 1000) / duration) : 30;
+              resolve(fps);
+              return;
+            }
+            if (this.video && 'requestVideoFrameCallback' in this.video) {
+              this.video.requestVideoFrameCallback(sampleCb);
+            } else {
+              clearTimeout(timeout);
+              resolve(30);
+            }
+          };
+          this.video.requestVideoFrameCallback(sampleCb);
+        });
+      } catch {
+        measuredFps = 30;
+      }
+    }
+
+    let normalizedFps = measuredFps;
+    if (measuredFps >= 48 && measuredFps <= 72) normalizedFps = 60;
+    else if (measuredFps >= 24 && measuredFps <= 35) normalizedFps = 30;
+    else if (measuredFps <= 0) normalizedFps = 30;
+
+    this.hardwareCamFps = normalizedFps;
+    this.realCamFps = normalizedFps;
+
+    // Auto-configure targetFps & resolution if not locked by user preference in localStorage
+    const hasCustomFps = typeof localStorage !== 'undefined' && localStorage.getItem('interrun_cv_fps');
+    if (!hasCustomFps) {
+      this.settings.targetFps = normalizedFps >= 50 ? 60 : normalizedFps <= 15 ? 15 : normalizedFps <= 25 ? 20 : 30;
+    }
+
+    const hasCustomRes = typeof localStorage !== 'undefined' && localStorage.getItem('interrun_cv_res');
+    if (!hasCustomRes) {
+      this.settings.resolution = normalizedFps >= 50 ? 'balanced' : normalizedFps <= 25 ? 'eco' : 'balanced';
+    }
+
+    if (this.onSettingsCalibrated) {
+      this.onSettingsCalibrated(this.settings);
+    }
+
+    console.log(`[VisionManager] Camera benchmark: measured ${measuredFps} FPS (normalized ${normalizedFps} FPS). Target FPS: ${this.settings.targetFps}, Resolution: ${this.settings.resolution}`);
   }
 
   /**
@@ -402,7 +510,7 @@ export class VisionManager {
       try {
         const frame = new VideoFrame(this.video);
         this.worker.postMessage(
-          { type: 'process', frame, timestamp: now, mode: this.activeMode },
+          { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
           [frame]
         );
         return;
@@ -419,7 +527,7 @@ export class VisionManager {
           return;
         }
         this.worker.postMessage(
-          { type: 'process', frame, timestamp: now, mode: this.activeMode },
+          { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
           [frame]
         );
       })
@@ -443,6 +551,16 @@ export class VisionManager {
     if (this.video && 'requestVideoFrameCallback' in this.video) {
       const onVideoFrame = (now) => {
         if (!this._loopRunning) return;
+
+        // Continuous hardware camera sensor FPS counter
+        this._camFrameCount++;
+        const camElapsed = now - this._camFpsTimer;
+        if (camElapsed >= 1000) {
+          this.realCamFps = Math.round((this._camFrameCount * 1000) / camElapsed);
+          this._camFrameCount = 0;
+          this._camFpsTimer = now;
+        }
+
         this._dispatchFrame(now);
         if (this.video && 'requestVideoFrameCallback' in this.video) {
           this._rvfcId = this.video.requestVideoFrameCallback(onVideoFrame);
@@ -511,7 +629,7 @@ export class VisionManager {
       ctx.restore();
     }
 
-    // Zone grid overlay (stage 2 & 3)
+    // Zone grid overlay (stage 2 & 3: zone and handzone only)
     if (this.activeMode === 'zone' || this.activeMode === 'handzone') {
       this._renderZoneGrid(W, H);
     }
@@ -572,54 +690,38 @@ export class VisionManager {
     const y0 = row === 'top' ? 0  : row === 'bot' ? yB : yT;
     const y1 = row === 'top' ? yT : row === 'bot' ? H  : yB;
 
-    const actionColors = {
-      'top-L': '#6c63ff55', 'top-C': '#00e5ff55', 'top-R': '#6c63ff55',
-      'mid-L': '#00ff8844', 'mid-C': 'rgba(255,255,255,0.03)', 'mid-R': '#00ff8844',
-      'bot-L': '#ff6b3555', 'bot-C': '#ff6b3555', 'bot-R': '#ff6b3555'
-    };
-
+    const actionKey = `${row}-${col}`;
     this.ctx.save();
-    this.ctx.fillStyle = actionColors[`${row}-${col}`] || 'rgba(255,255,255,0.06)';
+    this.ctx.fillStyle = ZONE_ACTION_COLORS[actionKey] || 'rgba(255,255,255,0.06)';
     this.ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
 
-    // --- Grid lines based on real thresholds ---
+    // --- Grid lines based on real thresholds (batched path) ---
     this.ctx.strokeStyle = 'rgba(255,255,255,0.30)';
     this.ctx.lineWidth = 1;
     this.ctx.setLineDash([3, 3]);
 
-    for (const px of [xL, xR]) {
-      this.ctx.beginPath();
-      this.ctx.moveTo(px, 0);
-      this.ctx.lineTo(px, H);
-      this.ctx.stroke();
-    }
-    for (const py of [yT, yB]) {
-      this.ctx.beginPath();
-      this.ctx.moveTo(0, py);
-      this.ctx.lineTo(W, py);
-      this.ctx.stroke();
-    }
+    this.ctx.beginPath();
+    this.ctx.moveTo(xL, 0); this.ctx.lineTo(xL, H);
+    this.ctx.moveTo(xR, 0); this.ctx.lineTo(xR, H);
+    this.ctx.moveTo(0, yT); this.ctx.lineTo(W, yT);
+    this.ctx.moveTo(0, yB); this.ctx.lineTo(W, yB);
+    this.ctx.stroke();
 
-    // --- Icons in cells ---
+    // --- Icons in cells (zero allocation) ---
     this.ctx.setLineDash([]);
     this.ctx.font = 'bold 9px sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
 
-    const cellsX = [xL / 2, (xL + xR) / 2, (xR + W) / 2];
-    const cellsY = [yT / 2, (yT + yB) / 2, (yB + H) / 2];
-    const labels = [
-      ['↑◀', '↑', '↑▶'],
-      ['◀',  '·', '▶' ],
-      ['↓◀', '↓', '↓▶']
-    ];
     const colIdx = col === 'L' ? 0 : col === 'R' ? 2 : 1;
     const rowIdx = row === 'top' ? 0 : row === 'bot' ? 2 : 1;
 
     for (let r = 0; r < 3; r++) {
+      const cy = r === 0 ? yT / 2 : r === 1 ? (yT + yB) / 2 : (yB + H) / 2;
       for (let c = 0; c < 3; c++) {
+        const cx = c === 0 ? xL / 2 : c === 1 ? (xL + xR) / 2 : (xR + W) / 2;
         this.ctx.fillStyle = (r === rowIdx && c === colIdx) ? '#ffffff' : 'rgba(255,255,255,0.35)';
-        this.ctx.fillText(labels[r][c], cellsX[c], cellsY[r]);
+        this.ctx.fillText(ZONE_LABELS[r][c], cx, cy);
       }
     }
 
@@ -712,6 +814,13 @@ export class VisionManager {
       this.worker.terminate();
       this.worker = null;
     }
+    this.hardwareCamFps = 0;
+    this.realCamFps = 0;
+    this.cvFps = 0;
+    this.cvLatency = 0;
+    this.cvFrametime = 0;
+    this._camFrameCount = 0;
+    this._cvFrameCount = 0;
     this.isReady = false;
     this._workerReady = false;
   }

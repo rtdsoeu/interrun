@@ -31,11 +31,19 @@ export class ObstacleManager {
     this.furthestZ = -180;
     this.isTransitioning = false;
 
-    this._initMaterials();
+    // Zero-allocation reusable vector for collision calculations
+    this._tempCenter = new THREE.Vector3();
 
-    // Coin geometry
-    this._coinGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.08, 16);
-    this._coinGeo.rotateZ(Math.PI / 2);
+    // Object pools to completely prevent runtime allocations during gameplay
+    this._pools = {
+      [ObstacleType.JUMP_BARRIER]: [],
+      [ObstacleType.SLIDE_BARRIER]: [],
+      [ObstacleType.TRAIN_BLOCKER]: []
+    };
+    this._coinPool = [];
+
+    this._initMaterials();
+    this._initGeometries();
   }
 
   setTransitioning(isTrans) {
@@ -45,11 +53,39 @@ export class ObstacleManager {
       for (let i = this.activeObstacles.length - 1; i >= 0; i--) {
         const obs = this.activeObstacles[i];
         if (obs.mesh.position.z >= -60 && obs.mesh.position.z <= 10) {
-          this.obstacleGroup.remove(obs.mesh);
+          this._recycleObstacle(obs);
           this.activeObstacles.splice(i, 1);
         }
       }
     }
+  }
+
+  _initGeometries() {
+    // Reusable shared geometries to eliminate GPU buffer churn and memory allocations
+    this._geoJumpBar = new THREE.BoxGeometry(2.0, 0.26, 0.2);
+    this._geoJumpPole = new THREE.CylinderGeometry(0.06, 0.08, 0.7, 8);
+
+    this._geoSlideBeam = new THREE.BoxGeometry(2.1, 0.6, 0.3);
+    this._geoSlidePole = new THREE.BoxGeometry(0.1, 2.0, 0.1);
+
+    this._geoTrain = new THREE.BoxGeometry(2.0, 2.6, 5.0);
+    this._geoTrainLight = new THREE.SphereGeometry(0.14, 8, 8);
+
+    // Coin geometry
+    this._coinGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.08, 16);
+    this._coinGeo.rotateZ(Math.PI / 2);
+  }
+
+  _recycleObstacle(obs) {
+    this.obstacleGroup.remove(obs.mesh);
+    if (this._pools[obs.type]) {
+      this._pools[obs.type].push(obs);
+    }
+  }
+
+  _recycleCoin(coin) {
+    this.coinGroup.remove(coin.mesh);
+    this._coinPool.push(coin);
   }
 
   _initMaterials() {
@@ -94,14 +130,15 @@ export class ObstacleManager {
   }
 
   reset() {
-    while (this.obstacleGroup.children.length > 0) {
-      this.obstacleGroup.remove(this.obstacleGroup.children[0]);
+    for (let i = 0; i < this.activeObstacles.length; i++) {
+      this._recycleObstacle(this.activeObstacles[i]);
     }
-    while (this.coinGroup.children.length > 0) {
-      this.coinGroup.remove(this.coinGroup.children[0]);
+    this.activeObstacles.length = 0;
+
+    for (let i = 0; i < this.activeCoins.length; i++) {
+      this._recycleCoin(this.activeCoins[i]);
     }
-    this.activeObstacles = [];
-    this.activeCoins = [];
+    this.activeCoins.length = 0;
 
     // Initial seeding: first obstacle at Z = -45, last at -180
     this.furthestZ = -180;
@@ -152,18 +189,27 @@ export class ObstacleManager {
   }
 
   _spawnJumpBarrier(lane, z) {
-    const group = new THREE.Group();
     const x = lane * this.laneWidth;
+    if (this._pools[ObstacleType.JUMP_BARRIER].length > 0) {
+      const obs = this._pools[ObstacleType.JUMP_BARRIER].pop();
+      obs.lane = lane;
+      obs.x = x;
+      obs.passed = false;
+      obs.mesh.position.set(x, 0, z);
+      this.obstacleGroup.add(obs.mesh);
+      this.activeObstacles.push(obs);
+      return;
+    }
+
+    const group = new THREE.Group();
     group.position.set(x, 0, z);
 
-    const barGeo = new THREE.BoxGeometry(2.0, 0.26, 0.2);
-    const bar = new THREE.Mesh(barGeo, this._matHazard);
+    const bar = new THREE.Mesh(this._geoJumpBar, this._matHazard);
     bar.position.y = 0.55;
     bar.castShadow = true;
     group.add(bar);
 
-    const poleGeo = new THREE.CylinderGeometry(0.06, 0.08, 0.7, 8);
-    const poleL = new THREE.Mesh(poleGeo, this._matFrame);
+    const poleL = new THREE.Mesh(this._geoJumpPole, this._matFrame);
     poleL.position.set(-0.92, 0.35, 0);
     poleL.castShadow = true;
 
@@ -188,18 +234,27 @@ export class ObstacleManager {
   }
 
   _spawnSlideBarrier(lane, z) {
-    const group = new THREE.Group();
     const x = lane * this.laneWidth;
+    if (this._pools[ObstacleType.SLIDE_BARRIER].length > 0) {
+      const obs = this._pools[ObstacleType.SLIDE_BARRIER].pop();
+      obs.lane = lane;
+      obs.x = x;
+      obs.passed = false;
+      obs.mesh.position.set(x, 0, z);
+      this.obstacleGroup.add(obs.mesh);
+      this.activeObstacles.push(obs);
+      return;
+    }
+
+    const group = new THREE.Group();
     group.position.set(x, 0, z);
 
-    const beamGeo = new THREE.BoxGeometry(2.1, 0.6, 0.3);
-    const beam = new THREE.Mesh(beamGeo, this._matHazard);
+    const beam = new THREE.Mesh(this._geoSlideBeam, this._matHazard);
     beam.position.y = 1.7;
     beam.castShadow = true;
     group.add(beam);
 
-    const poleGeo = new THREE.BoxGeometry(0.1, 2.0, 0.1);
-    const poleL = new THREE.Mesh(poleGeo, this._matFrame);
+    const poleL = new THREE.Mesh(this._geoSlidePole, this._matFrame);
     poleL.position.set(-0.95, 1.0, 0);
     poleL.castShadow = true;
 
@@ -224,19 +279,28 @@ export class ObstacleManager {
   }
 
   _spawnTrainBlocker(lane, z) {
-    const group = new THREE.Group();
     const x = lane * this.laneWidth;
+    if (this._pools[ObstacleType.TRAIN_BLOCKER].length > 0) {
+      const obs = this._pools[ObstacleType.TRAIN_BLOCKER].pop();
+      obs.lane = lane;
+      obs.x = x;
+      obs.passed = false;
+      obs.mesh.position.set(x, 0, z);
+      this.obstacleGroup.add(obs.mesh);
+      this.activeObstacles.push(obs);
+      return;
+    }
+
+    const group = new THREE.Group();
     group.position.set(x, 0, z);
 
-    const trainGeo = new THREE.BoxGeometry(2.0, 2.6, 5.0);
-    const train = new THREE.Mesh(trainGeo, this._matTrain);
+    const train = new THREE.Mesh(this._geoTrain, this._matTrain);
     train.position.set(0, 1.3, -2.0);
     train.castShadow = true;
     train.receiveShadow = true;
     group.add(train);
 
-    const lightGeo = new THREE.SphereGeometry(0.14, 8, 8);
-    const lightL = new THREE.Mesh(lightGeo, this._matTrainLight);
+    const lightL = new THREE.Mesh(this._geoTrainLight, this._matTrainLight);
     lightL.position.set(-0.55, 1.1, 0.55);
 
     const lightR = lightL.clone();
@@ -259,19 +323,33 @@ export class ObstacleManager {
     });
   }
 
-  _spawnCoinLine(lane, startZ, count = 4, y = 0.5) {
-    const x = lane * this.laneWidth;
-    for (let i = 0; i < count; i++) {
+  _spawnCoin(x, y, z) {
+    let coin;
+    if (this._coinPool.length > 0) {
+      coin = this._coinPool.pop();
+      coin.x = x;
+      coin.y = y;
+      coin.collected = false;
+      coin.mesh.position.set(x, y, z);
+      coin.mesh.rotation.set(0, 0, 0);
+    } else {
       const mesh = new THREE.Mesh(this._coinGeo, this._matCoin);
-      mesh.position.set(x, y, startZ - i * 2.2);
-      this.coinGroup.add(mesh);
-
-      this.activeCoins.push({
+      mesh.position.set(x, y, z);
+      coin = {
         mesh,
         x,
         y,
         collected: false
-      });
+      };
+    }
+    this.coinGroup.add(coin.mesh);
+    this.activeCoins.push(coin);
+  }
+
+  _spawnCoinLine(lane, startZ, count = 4, y = 0.5) {
+    const x = lane * this.laneWidth;
+    for (let i = 0; i < count; i++) {
+      this._spawnCoin(x, y, startZ - i * 2.2);
     }
   }
 
@@ -281,16 +359,7 @@ export class ObstacleManager {
     const heights = [0.8, 1.6, 2.2, 1.6, 0.8];
 
     for (let i = 0; i < offsets.length; i++) {
-      const mesh = new THREE.Mesh(this._coinGeo, this._matCoin);
-      mesh.position.set(x, heights[i], zCenter + offsets[i]);
-      this.coinGroup.add(mesh);
-
-      this.activeCoins.push({
-        mesh,
-        x,
-        y: heights[i],
-        collected: false
-      });
+      this._spawnCoin(x, heights[i], zCenter + offsets[i]);
     }
   }
 
@@ -330,14 +399,14 @@ export class ObstacleManager {
       }
 
       if (currentZ > 15) {
-        this.obstacleGroup.remove(obs.mesh);
+        this._recycleObstacle(obs);
         this.activeObstacles.splice(i, 1);
       }
     }
 
-    // 3. Coins
+    // 3. Coins (zero-allocation runnerCenter lookup using reusable vector)
     const coinRotSpeed = 4.2;
-    const runnerCenter = runnerHitbox.getCenter(new THREE.Vector3());
+    const runnerCenter = runnerHitbox.getCenter(this._tempCenter);
 
     for (let i = this.activeCoins.length - 1; i >= 0; i--) {
       const coin = this.activeCoins[i];
@@ -351,7 +420,7 @@ export class ObstacleManager {
 
         if (dx < 0.85 && dy < 1.1 && dz < 1.0) {
           coin.collected = true;
-          this.coinGroup.remove(coin.mesh);
+          this._recycleCoin(coin);
           this.activeCoins.splice(i, 1);
           if (this.soundFx) this.soundFx.playCoin();
           if (onCoinCollected) onCoinCollected();
@@ -360,7 +429,7 @@ export class ObstacleManager {
       }
 
       if (coin.mesh.position.z > 15) {
-        this.coinGroup.remove(coin.mesh);
+        this._recycleCoin(coin);
         this.activeCoins.splice(i, 1);
       }
     }

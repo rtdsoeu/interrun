@@ -48,6 +48,7 @@ export class CameraRig {
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(playerPos.x * 0.6, this.lookHeight, -this.lookDistance);
     this.camera.fov = this.baseFOV;
+    this._prevFov = this.baseFOV;
     this.camera.updateProjectionMatrix();
   }
 
@@ -67,7 +68,14 @@ export class CameraRig {
     const targetFOV = THREE.MathUtils.lerp(this.baseFOV, this.maxFOV, THREE.MathUtils.clamp(speedNorm, 0, 1));
     const fovFactor = 1 - Math.exp(-2.0 * dt);
     this.currentFOV = THREE.MathUtils.lerp(this.currentFOV, targetFOV, fovFactor);
-    this.camera.fov = THREE.MathUtils.clamp(this.currentFOV, 60, 72);
+    const clampedFov = THREE.MathUtils.clamp(this.currentFOV, 60, 72);
+
+    // Only recalculate projection matrix when FOV actually changes
+    if (Math.abs(clampedFov - this._prevFov) > 0.02) {
+      this._prevFov = clampedFov;
+      this.camera.fov = clampedFov;
+      this.camera.updateProjectionMatrix();
+    }
 
     // 4. Positional screen shake on impact (translation only, strictly within ±0.15m)
     let shakeX = 0;
@@ -96,7 +104,5 @@ export class CameraRig {
       this.lookHeight + slideDrop * 0.2,
       -this.lookDistance
     );
-
-    this.camera.updateProjectionMatrix();
   }
 }

@@ -55,14 +55,28 @@ export const translations = {
   'stage.5.hint':      { en: '👋 Swipe LEFT/RIGHT → lane &nbsp;|&nbsp; Swipe UP → jump &nbsp;|&nbsp; Swipe DOWN → slide',
                          uk: '👋 Змах ЛІВО/ПРАВО → смуга &nbsp;|&nbsp; ВГОРУ → стрибок &nbsp;|&nbsp; ВНИЗ → підкат' },
 
+  // Mobile touch overrides for Stage 0 & 1
+  'stage.0.name.touch':    { en: 'Touch D-Pad',           uk: 'Сенсорні кнопки' },
+  'stage.1.name.touch':    { en: 'Touch Swipes',          uk: 'Свайпи по екрану' },
+  'stage.0.badge.touch':   { en: 'STAGE 0: TOUCH D-PAD',  uk: 'ЕТАП 0: СЕНСОРНІ КНОПКИ' },
+  'stage.1.badge.touch':   { en: 'STAGE 1: TOUCH SWIPES', uk: 'ЕТАП 1: СВАЙПИ ПО ЕКРАНУ' },
+  'stage.0.desc.touch':    { en: 'TOUCH D-PAD BUTTONS',   uk: 'СЕНСОРНІ КНОПКИ НА ЕКРАНІ' },
+  'stage.1.desc.touch':    { en: 'BUTTONS OFF → SWIPE ON SCREEN', uk: 'КНОПКИ ВИКЛ → СВАЙПИ ПО ЕКРАНУ' },
+  'stage.0.hint.touch':    { en: '◀ / ▶ Lane &nbsp;|&nbsp; ▲ Jump &nbsp;|&nbsp; ▼ Slide',
+                            uk: '◀ / ▶ Смуга &nbsp;|&nbsp; ▲ Стрибок &nbsp;|&nbsp; ▼ Присід' },
+  'stage.1.hint.touch':    { en: '↔ Swipe left/right &nbsp;|&nbsp; ↑ Swipe/Tap = Jump &nbsp;|&nbsp; ↓ Swipe = Slide',
+                            uk: '↔ Свайп ліво/право &nbsp;|&nbsp; ↑ Свайп/Тап = Стрибок &nbsp;|&nbsp; ↓ Свайп = Присід' },
+
   // ─── STAGE TRANSITION (COUNTDOWN) ───────────────────────────────────────────
-  'transition.switching':  { en: '⚡ UPCOMING STAGE',    uk: '⚡ СКОРО ЗМІНА УПРАВЛІННЯ' },
-  'transition.hint.0':     { en: '⌨️ Prepare Keyboard: A/D to steer, W to jump, S to slide', uk: '⌨️ Приготуйтеся: A/D смуга, W стрибок, S присід' },
-  'transition.hint.1':     { en: '👆 Prepare Touch/Mouse: swipe left/right to steer', uk: '👆 Приготуйтеся до миші: свайп ліво/право, клік — стрибок' },
-  'transition.hint.2':     { en: '👤 Camera is ready! Move your head/face into the 3×3 grid', uk: '👤 Камера готова! Керуйте головою/обличчям у сітці 3×3' },
-  'transition.hint.3':     { en: '✋ Hand only in 3×3 grid: keep your palm in front of camera', uk: '✋ Лише долоня у сітці 3×3: тримайте руку перед камерою' },
-  'transition.hint.4':     { en: '✌️ Finger Gestures: 1/2/3 fingers for lane, palm=jump, fist=slide', uk: '✌️ Жести: 1/2/3 пальці — смуга, долоня — стрибок, кулак — присід' },
-  'transition.hint.5':     { en: '👋 Air Swipes: quick wave left/right to change lane, up to jump', uk: '👋 Змахи: різкий змах рукою ліворуч/праворуч/вгору/вниз' },
+  'transition.switching':      { en: '⚡ UPCOMING STAGE',    uk: '⚡ СКОРО ЗМІНА УПРАВЛІННЯ' },
+  'transition.hint.0':         { en: '⌨️ Prepare Keyboard: A/D to steer, W to jump, S to slide', uk: '⌨️ Приготуйтеся: A/D смуга, W стрибок, S присід' },
+  'transition.hint.1':         { en: '👆 Prepare Touch/Mouse: swipe left/right to steer', uk: '👆 Приготуйтеся: свайп ліво/право, клік — стрибок' },
+  'transition.hint.2':         { en: '👤 Camera is ready! Move your head/face into the 3×3 grid', uk: '👤 Камера готова! Керуйте головою/обличчям у сітці 3×3' },
+  'transition.hint.3':         { en: '✋ Hand only in 3×3 grid: keep your palm in front of camera', uk: '✋ Лише долоня у сітці 3×3: тримайте руку перед камерою' },
+  'transition.hint.4':         { en: '✌️ Finger Gestures: 1/2/3 fingers for lane, palm=jump, fist=slide', uk: '✌️ Жести: 1/2/3 пальці — смуга, долоня — стрибок, кулак — присід' },
+  'transition.hint.5':         { en: '👋 Air Swipes: quick wave left/right to change lane, up to jump', uk: '👋 Змахи: різкий змах рукою ліворуч/праворуч/вгору/вниз' },
+  'transition.hint.0.touch':   { en: '📱 Prepare Touch D-Pad: tap on-screen arrows to steer', uk: '📱 Приготуйтеся: натискайте кнопки зі стрілками на екрані' },
+  'transition.hint.1.touch':   { en: '👆 Prepare Touch Swipes: swipe left/right to steer, up to jump', uk: '👆 Приготуйтеся до свайпів: свайп ліво/право — смуга, вгору — стрибок' },
 
   // ─── HUD ────────────────────────────────────────────────────────────────────
   'hud.distance':      { en: 'Distance',              uk: 'Дистанція' },
@@ -74,6 +88,7 @@ export const translations = {
   'hud.debug':         { en: 'DEBUG',                 uk: 'ДЕБАГ' },
   'hud.immortal':      { en: '🛡️ GOD MODE (♾️)',      uk: '🛡️ БЕЗСМЕРТЯ (♾️)' },
   'hud.cam.active':    { en: 'CAMERA: ACTIVE',        uk: 'КАМЕРА: АКТИВНА' },
+  'hud.cam.lowlight':  { en: 'Low light: adaptive tracking active', uk: 'Слабке світло: адаптивний трекінг активний' },
   'hud.sound':         { en: 'SOUND',                 uk: 'ЗВУК' },
 
   // ─── GAME OVER ──────────────────────────────────────────────────────────────

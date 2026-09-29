@@ -15,7 +15,6 @@ import { TouchButtonControl } from '../controls/TouchButtonControl.js';
 import { VisionManager } from '../vision/VisionManager.js';
 import { SkinManager } from '../skins/SkinManager.js';
 import { SoundFx } from '../audio/SoundFx.js';
-import { AudioManager } from '../audio/AudioManager.js';
 import { HUD } from '../ui/HUD.js';
 import { i18n } from '../i18n/i18n.js';
 
@@ -49,7 +48,6 @@ export class Engine {
     // 1. Audio, computer vision, and skin initialisation
     this.soundFx = new SoundFx();
     this.soundFx.startBGM('menu');
-    this.audioManager = new AudioManager();
     this.skinManager = new SkinManager();
     this.visionManager = new VisionManager();
     // Start background model preload while the menu is visible — eliminates the
@@ -78,7 +76,8 @@ export class Engine {
     // 5. HUD and UI
     this.hud = new HUD(this.uiRoot, this.skinManager, this.soundFx, this.visionManager);
     this._bindHUD();
-    this.visionManager.onFpsUpdate = (fps, latency) => this.hud.updateCvFPS(fps, latency);
+    this.visionManager.onFpsUpdate = (cvFps, frametime, camFps) => this.hud.updateCvFPS(cvFps, frametime, camFps);
+    this.visionManager.onSettingsCalibrated = (settings) => this.hud.syncVisionSettings(settings);
 
     // 6. Debug hotkeys
     this._bindDebugShortcuts();
@@ -89,12 +88,16 @@ export class Engine {
     // 8. Language switch -> HUD rerender
     i18n.onLangChange = () => this.hud.rerender();
 
-    // 9. Game loop and FPS counter
-    this.clock = new THREE.Clock();
+    // 9. Game loop timer and FPS counter (using modern THREE.Timer)
+    this.timer = new THREE.Timer();
     this._frameCount = 0;
     this._fpsTimer = 0;
     this._onResize = () => this._handleResize();
     window.addEventListener('resize', this._onResize);
+    if (typeof window !== 'undefined' && window.visualViewport) {
+      window.visualViewport.addEventListener('resize', this._onResize);
+      window.visualViewport.addEventListener('scroll', this._onResize);
+    }
 
     // 10. Stage transition & early camera pre-warm
     this._transitioning = false;
@@ -114,6 +117,11 @@ export class Engine {
       this._resizeObserver = new ResizeObserver(() => this._handleResize());
       this._resizeObserver.observe(container);
     }
+
+    // Pre-bound callbacks to eliminate per-frame closure allocations in requestAnimationFrame
+    this._boundAnimate = () => this._animate();
+    this._boundOnPlayerHit = (hitObs) => this._onPlayerHit(hitObs);
+    this._boundOnCoinCollected = () => { this.coins++; };
 
     // Start render loop
     this._animate();
@@ -137,7 +145,7 @@ export class Engine {
     const dpr = Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2) * this.renderScale;
     this.renderer.setPixelRatio(dpr);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
     // Scene lighting
     this.ambientLight = new THREE.AmbientLight(0x334466, 1.2);
@@ -428,8 +436,25 @@ export class Engine {
 
   _handleResize() {
     const container = typeof document !== 'undefined' ? (document.getElementById('game-container') || document.body) : null;
-    const w = container?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1280);
-    const h = container?.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 720);
+    const maxH = typeof window !== 'undefined'
+      ? (window.visualViewport ? Math.round(window.visualViewport.height) : window.innerHeight)
+      : 720;
+    const maxW = typeof window !== 'undefined'
+      ? (window.visualViewport ? Math.round(window.visualViewport.width) : window.innerWidth)
+      : 1280;
+
+    let w = container?.clientWidth || maxW;
+    let h = container?.clientHeight || maxH;
+
+    // Safety guard: in fullscreen mode on mobile browsers, ensure canvas never exceeds
+    // the true visible visual viewport (eliminates bottom 15-20px overflow beneath navigation bar)
+    if (this.viewportFrame === 'full') {
+      if (h > maxH) h = maxH;
+      if (w > maxW) w = maxW;
+    }
+
+    if (w <= 0 || h <= 0) return;
+
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h, false);
@@ -480,7 +505,6 @@ export class Engine {
     this._applyStageSwitch(stage);
 
     this.soundFx?.unlock();
-    this.soundFx?.startBGM('game');
     this.soundFx?.setBgmMode('game');
 
     this.cameraRig.reset(this.runner.pos);
@@ -529,9 +553,10 @@ export class Engine {
   }
 
   _animate() {
-    requestAnimationFrame(() => this._animate());
+    requestAnimationFrame(this._boundAnimate);
 
-    const dt = Math.min(this.clock.getDelta(), 0.08);
+    this.timer.update();
+    const dt = Math.min(this.timer.getDelta(), 0.08);
 
     // FPS counter
     this._frameCount++;
@@ -591,8 +616,8 @@ export class Engine {
       this.obstacleManager.update(
         dt, speed, difficulty,
         this.runner.hitbox,
-        (hitObs) => this._onPlayerHit(hitObs),
-        () => { this.coins++; }
+        this._boundOnPlayerHit,
+        this._boundOnCoinCollected
       );
 
       this.cameraRig.update(dt, this.runner.pos, this.runner.xVelocity, speedNorm,

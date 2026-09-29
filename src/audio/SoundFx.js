@@ -56,15 +56,19 @@ export class SoundFx {
 
     if (!this._ctx) {
       try {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (AudioCtx) {
-          this._ctx = new AudioCtx();
+        if (window.AudioContext) {
+          this._ctx = new AudioContext();
 
           this._masterGain = this._ctx.createGain();
           this._masterGain.connect(this._ctx.destination);
 
           this._sfxGain = this._ctx.createGain();
           this._sfxGain.connect(this._masterGain);
+
+          // Attach unified Web Audio graph to MusicPlayer (sample-accurate RAM looping, 0% CPU DSP gain)
+          if (this.music) {
+            this.music.attachAudioContext(this._ctx, this._masterGain);
+          }
 
           this._updateGains();
         }
@@ -92,9 +96,14 @@ export class SoundFx {
   unlock() {
     this._ensureContext();
     if (this._ctx && this._ctx.state === 'suspended') {
-      this._ctx.resume().catch(() => {});
+      this._ctx.resume().then(() => {
+        this.music?.unlock();
+      }).catch(() => {
+        this.music?.unlock();
+      });
+    } else {
+      this.music?.unlock();
     }
-    this.music?.unlock();
   }
 
   init() {

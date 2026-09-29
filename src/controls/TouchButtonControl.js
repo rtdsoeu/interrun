@@ -44,7 +44,7 @@ export class TouchButtonControl extends BaseControl {
       display: 'flex',
       alignItems: 'flex-end',
       justifyContent: 'space-between',
-      padding: '0 16px 20px',
+      padding: '0 16px calc(16px + env(safe-area-inset-bottom, 0px))',
       userSelect: 'none'
     });
 

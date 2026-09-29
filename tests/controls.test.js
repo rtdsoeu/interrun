@@ -394,6 +394,52 @@ describe('FingerGestureControl (Stage 4: Kinematic Gestures)', () => {
   });
 });
 
+describe('HandSwipeControl (Air Swipes + Seamless Fallback)', () => {
+  it('processes air swipes from vision state and supports keyboard/touch fallback', () => {
+    const mockVision = {
+      isReady: true,
+      setMode: () => {},
+      initWebcam: () => {},
+      currentState: {
+        hsSource: 'hand',
+        hsSwipe: 'left',
+        hsSwipeId: 1
+      }
+    };
+
+    const hsc = new HandSwipeControl(mockVision);
+    hsc.enable();
+
+    // Air swipe left
+    hsc.update(0.016);
+    let action = hsc.consume();
+    expect(action.laneDelta).toBe(-1);
+
+    // Duplicate event with same ID is ignored
+    hsc.update(0.016);
+    expect(hsc.consume().laneDelta).toBe(0);
+
+    // Air swipe up (jump)
+    mockVision.currentState.hsSwipe = 'up';
+    mockVision.currentState.hsSwipeId = 2;
+    hsc.update(0.016);
+    action = hsc.consume();
+    expect(action.jump).toBe(true);
+
+    // Keyboard fallback: ArrowRight
+    hsc._keyDown({ code: 'ArrowRight', preventDefault: () => {} });
+    action = hsc.consume();
+    expect(action.laneDelta).toBe(1);
+
+    // Keyboard fallback: Space (jump)
+    hsc._keyDown({ code: 'Space', preventDefault: () => {} });
+    action = hsc.consume();
+    expect(action.jump).toBe(true);
+
+    hsc.disable();
+  });
+});
+
 describe('VisionManager Performance Settings', () => {
   it('exposes correct resolution presets (eco 160x120, balanced 256x192, high 320x240)', async () => {
     const { CV_RESOLUTION_PRESETS, VisionManager } = await import('../src/vision/VisionManager.js');
@@ -477,4 +523,76 @@ describe('ScoreSystem Speed Multipliers & Debug Launch', () => {
     expect(distGained).toBeCloseTo(STAGE_BASE_SPEEDS[0] * 1.5, 1);
   });
 });
+
+describe('HandSwipeControl Fallback Backup Inputs', () => {
+  it('supports emergency keyboard backup (WASD / Arrows / Space) when enabled', () => {
+    const mockVision = { isReady: true, currentState: {}, setMode: () => {}, initWebcam: () => {} };
+    const swipeControl = new HandSwipeControl(mockVision);
+    swipeControl.enable();
+
+    // Keydown ArrowLeft
+    swipeControl._keyDown({ code: 'ArrowLeft', preventDefault: () => {} });
+    swipeControl.update(0.016);
+    let cmd = swipeControl.consume();
+    expect(cmd.laneDelta).toBe(-1);
+
+    // Keyup ArrowLeft
+    swipeControl._keyUp({ code: 'ArrowLeft' });
+
+    // Keydown Space (Jump)
+    swipeControl._keyDown({ code: 'Space', preventDefault: () => {} });
+    swipeControl.update(0.016);
+    cmd = swipeControl.consume();
+    expect(cmd.jump).toBe(true);
+    swipeControl._keyUp({ code: 'Space' });
+
+    // Keydown KeyS (Slide)
+    swipeControl._keyDown({ code: 'KeyS', preventDefault: () => {} });
+    swipeControl.update(0.016);
+    cmd = swipeControl.consume();
+    expect(cmd.slide).toBe(true);
+    swipeControl._keyUp({ code: 'KeyS' });
+
+    swipeControl.disable();
+  });
+
+  it('supports touch swipe fallback gestures', () => {
+    const mockVision = { isReady: true, currentState: {}, setMode: () => {}, initWebcam: () => {} };
+    const swipeControl = new HandSwipeControl(mockVision);
+    swipeControl.enable();
+
+    // Touch swipe right (dx = 50px)
+    swipeControl._onTouchStart({ touches: [{ clientX: 100, clientY: 100 }], target: {} });
+    swipeControl._onTouchMove({ touches: [{ clientX: 160, clientY: 102 }] });
+    swipeControl._onTouchEnd();
+
+    swipeControl.update(0.016);
+    const cmd = swipeControl.consume();
+    expect(cmd.laneDelta).toBe(1);
+
+    swipeControl.disable();
+  });
+});
+
+describe('VisionManager Low FPS Auto-Calibration', () => {
+  it('correctly sets eco resolution and lowered target FPS when camera is <= 15 FPS', async () => {
+    const { VisionManager } = await import('../src/vision/VisionManager.js');
+    const vm = new VisionManager();
+
+    // Simulate mock video with requestVideoFrameCallback returning 10 FPS (100ms per frame)
+    let t = 1000;
+    vm.video = {
+      requestVideoFrameCallback: (cb) => {
+        t += 100;
+        cb(t);
+      }
+    };
+
+    await vm._benchmarkCameraFps();
+    expect(vm.realCamFps).toBeLessThanOrEqual(15);
+    expect(vm.settings.targetFps).toBeLessThanOrEqual(15);
+    expect(vm.settings.resolution).toBe('eco');
+  });
+});
+
 

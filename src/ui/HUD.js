@@ -115,6 +115,7 @@ export class HUD {
     this.elFps          = document.getElementById('hud-fps');
     this.elCvFps        = document.getElementById('hud-cv-fps');
     this.elCvMs         = document.getElementById('hud-cv-ms');
+    this.elCamFps       = document.getElementById('hud-cam-fps');
     this.elCvPanel      = document.getElementById('hud-cv-panel');
     this.elControlHint  = document.getElementById('control-hint');
     this.elSpeedBar     = document.getElementById('speed-bar-fill');
@@ -141,6 +142,22 @@ export class HUD {
       this.visionManager.setPreviewCanvas(this.elWebcamCanvas);
     }
     this.elWebcamStatus   = document.getElementById('webcam-status');
+
+    // Pre-cache life DOM elements to avoid per-frame document.getElementById lookups
+    this._lifeEls = [
+      document.getElementById('life-1'),
+      document.getElementById('life-2'),
+      document.getElementById('life-3')
+    ];
+    this._lastDistInt   = -1;
+    this._lastCoins     = -1;
+    this._lastSpeedPct  = -1;
+    this._lastLives     = -1;
+    this._lastGodMode   = null;
+    this._lastFps       = -1;
+    this._lastCvFps     = -1;
+    this._lastCvMs      = -1;
+    this._lastCamFps    = -1;
 
     this.elOptLock = document.getElementById('debug-opt-lock');
     this.elOptGod  = document.getElementById('debug-opt-god');
@@ -472,6 +489,14 @@ export class HUD {
     });
   }
 
+  syncVisionSettings(settings) {
+    if (!settings) return;
+    if (settings.targetFps) this._settings.targetFps = settings.targetFps;
+    if (settings.resolution) this._settings.resolution = settings.resolution;
+    if (settings.pipMode) this._settings.pipMode = settings.pipMode;
+    this._updateSettingsButtons();
+  }
+
   updateSoundState(isMuted) {
     const icon = document.getElementById('hud-sound-icon');
     if (icon) {
@@ -546,6 +571,11 @@ export class HUD {
 
   showGame() {
     this.hideTransitionCountdown();
+    this._lastDistInt = -1;
+    this._lastCoins = -1;
+    this._lastSpeedPct = -1;
+    this._lastLives = -1;
+    this._lastGodMode = null;
     this.elMenu?.classList.add('hidden');
     this.elHud?.classList.remove('hidden');
     this.elDeath?.classList.remove('show');
@@ -564,41 +594,69 @@ export class HUD {
   // ─────────────────────────────────────────────────────────────────────────
 
   updateHUD(distance, speedNorm, coins, lives, isGodMode = false, isStageLocked = false) {
-    if (this.elDist)  this.elDist.textContent  = Math.floor(distance);
-    if (this.elCoins) this.elCoins.textContent = coins;
-    if (this.elSpeedBar) {
-      this.elSpeedBar.style.width = `${Math.min(100, Math.floor(speedNorm * 100))}%`;
+    const distInt = Math.floor(distance);
+    if (this.elDist && distInt !== this._lastDistInt) {
+      this._lastDistInt = distInt;
+      this.elDist.textContent = distInt;
     }
 
-    this._isGodMode      = isGodMode;
-    this._isStageLocked  = isStageLocked;
+    if (this.elCoins && coins !== this._lastCoins) {
+      this._lastCoins = coins;
+      this.elCoins.textContent = coins;
+    }
 
-    if (isGodMode) {
-      this.elLivesRow?.classList.add('hidden');
-      this.elGodBadge?.classList.remove('hidden');
-    } else {
-      this.elLivesRow?.classList.remove('hidden');
-      this.elGodBadge?.classList.add('hidden');
-      for (let i = 1; i <= 3; i++) {
-        document.getElementById(`life-${i}`)?.classList.toggle('lost', i > lives);
+    const speedPct = Math.min(100, Math.floor(speedNorm * 100));
+    if (this.elSpeedBar && speedPct !== this._lastSpeedPct) {
+      this._lastSpeedPct = speedPct;
+      this.elSpeedBar.style.width = `${speedPct}%`;
+    }
+
+    this._isStageLocked = isStageLocked;
+
+    if (isGodMode !== this._lastGodMode) {
+      this._lastGodMode = isGodMode;
+      this._isGodMode = isGodMode;
+      if (isGodMode) {
+        this.elLivesRow?.classList.add('hidden');
+        this.elGodBadge?.classList.remove('hidden');
+      } else {
+        this.elLivesRow?.classList.remove('hidden');
+        this.elGodBadge?.classList.add('hidden');
+      }
+    }
+
+    if (!isGodMode && lives !== this._lastLives) {
+      this._lastLives = lives;
+      for (let i = 0; i < 3; i++) {
+        this._lifeEls[i]?.classList.toggle('lost', (i + 1) > lives);
       }
     }
   }
 
   updateFPS(fps) {
-    if (!this.elFps) return;
+    if (!this.elFps || fps === this._lastFps) return;
+    this._lastFps = fps;
     this.elFps.textContent = fps;
     this.elFps.style.color = fps >= 55 ? '#00e676' : fps >= 30 ? '#ffd700' : '#ff3d5e';
   }
 
-  updateCvFPS(fps, latency) {
-    if (this.elCvFps) {
+  updateCvFPS(fps, frametime, camFps = null) {
+    if (this.elCvFps && fps !== this._lastCvFps) {
+      this._lastCvFps = fps;
       this.elCvFps.textContent = fps;
       this.elCvFps.style.color = fps >= 25 ? '#00e5ff' : fps >= 15 ? '#ffd700' : '#ff3d5e';
     }
-    if (this.elCvMs) {
-      this.elCvMs.textContent = latency ? `• ${latency}ms` : '';
-      this.elCvMs.style.color = latency <= 45 ? '#00e5ff' : latency <= 75 ? '#ffd700' : '#ff3d5e';
+    if (this.elCvMs && frametime !== this._lastCvMs) {
+      this._lastCvMs = frametime;
+      this.elCvMs.textContent = frametime ? `• ${frametime}ms` : '';
+      this.elCvMs.style.color = frametime <= 35 ? '#00e5ff' : frametime <= 65 ? '#ffd700' : '#ff3d5e';
+    }
+    if (this.elCamFps && camFps && camFps !== this._lastCamFps) {
+      this._lastCamFps = camFps;
+      const isLowLight = camFps < 18;
+      this.elCamFps.textContent = isLowLight ? `📹${camFps} 💡` : `📹${camFps}`;
+      this.elCamFps.style.color = isLowLight ? '#ffd700' : 'rgba(255,255,255,0.65)';
+      this.elCamFps.title = isLowLight ? i18n.t('hud.cam.lowlight') : 'Camera FPS';
     }
   }
 
@@ -620,17 +678,39 @@ export class HUD {
     else      this.elWebcamPip.classList.add('hidden');
   }
 
+  _isTouch() {
+    return (typeof window !== 'undefined') && (('ontouchstart' in window) || (navigator.maxTouchPoints > 0));
+  }
+
+  _tStage(stageNumber, field) {
+    if (this._isTouch()) {
+      const touchKey = `stage.${stageNumber}.${field}.touch`;
+      const val = this._t(touchKey);
+      if (val !== touchKey) return val;
+    }
+    return this._t(`stage.${stageNumber}.${field}`);
+  }
+
+  _tTransition(stageNumber) {
+    if (this._isTouch()) {
+      const touchKey = `transition.hint.${stageNumber}.touch`;
+      const val = this._t(touchKey);
+      if (val !== touchKey) return val;
+    }
+    return this._t(`transition.hint.${stageNumber}`);
+  }
+
   announceStage(stageNumber, isLocked = false) {
     this._selectedDebugStage = stageNumber;
     this._updateDebugStageButtons();
 
     const stages = [
-      { badge: this._t('stage.0.badge'), hint: this._t('stage.0.hint'), title: this._t('stage.0.title'), desc: this._t('stage.0.desc') },
-      { badge: this._t('stage.1.badge'), hint: this._t('stage.1.hint'), title: this._t('stage.1.title'), desc: this._t('stage.1.desc') },
-      { badge: this._t('stage.2.badge'), hint: this._t('stage.2.hint'), title: this._t('stage.2.title'), desc: this._t('stage.2.desc') },
-      { badge: this._t('stage.3.badge'), hint: this._t('stage.3.hint'), title: this._t('stage.3.title'), desc: this._t('stage.3.desc') },
-      { badge: this._t('stage.4.badge'), hint: this._t('stage.4.hint'), title: this._t('stage.4.title'), desc: this._t('stage.4.desc') },
-      { badge: this._t('stage.5.badge'), hint: this._t('stage.5.hint'), title: this._t('stage.5.title'), desc: this._t('stage.5.desc') },
+      { badge: this._tStage(0, 'badge'), hint: this._tStage(0, 'hint'), title: this._tStage(0, 'title'), desc: this._tStage(0, 'desc') },
+      { badge: this._tStage(1, 'badge'), hint: this._tStage(1, 'hint'), title: this._tStage(1, 'title'), desc: this._tStage(1, 'desc') },
+      { badge: this._tStage(2, 'badge'), hint: this._tStage(2, 'hint'), title: this._tStage(2, 'title'), desc: this._tStage(2, 'desc') },
+      { badge: this._tStage(3, 'badge'), hint: this._tStage(3, 'hint'), title: this._tStage(3, 'title'), desc: this._tStage(3, 'desc') },
+      { badge: this._tStage(4, 'badge'), hint: this._tStage(4, 'hint'), title: this._tStage(4, 'title'), desc: this._tStage(4, 'desc') },
+      { badge: this._tStage(5, 'badge'), hint: this._tStage(5, 'hint'), title: this._tStage(5, 'title'), desc: this._tStage(5, 'desc') },
     ];
 
     const info = stages[stageNumber] ?? stages[0];
@@ -665,21 +745,21 @@ export class HUD {
     if (!banner) return;
 
     const stageNames = [
-      this._t('stage.0.badge'),
-      this._t('stage.1.badge'),
-      this._t('stage.2.badge'),
-      this._t('stage.3.badge'),
-      this._t('stage.4.badge'),
-      this._t('stage.5.badge')
+      this._tStage(0, 'badge'),
+      this._tStage(1, 'badge'),
+      this._tStage(2, 'badge'),
+      this._tStage(3, 'badge'),
+      this._tStage(4, 'badge'),
+      this._tStage(5, 'badge')
     ];
 
     const stageHints = [
-      this._t('transition.hint.0'),
-      this._t('transition.hint.1'),
-      this._t('transition.hint.2'),
-      this._t('transition.hint.3'),
-      this._t('transition.hint.4'),
-      this._t('transition.hint.5')
+      this._tTransition(0),
+      this._tTransition(1),
+      this._tTransition(2),
+      this._tTransition(3),
+      this._tTransition(4),
+      this._tTransition(5)
     ];
 
     const badge = document.getElementById('transition-next-badge');
