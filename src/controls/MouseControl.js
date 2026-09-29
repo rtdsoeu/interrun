@@ -1,10 +1,10 @@
 import { BaseControl } from './BaseControl.js';
 
 /**
- * Этап 1 — Управление мышью / свайпами.
- * - Свайп или резкое движение влево/вправо = смена полосы
- * - Клик ЛКМ или свайп вверх = прыжок
- * - Клик ПКМ или свайп вниз = присед
+ * Stage 1 — Mouse / swipe control (legacy).
+ * - Swipe or quick movement left/right = lane change
+ * - Click LMB or swipe up = jump
+ * - Click RMB or swipe down = slide / duck
  */
 export class MouseControl extends BaseControl {
   constructor() {
@@ -15,8 +15,8 @@ export class MouseControl extends BaseControl {
     this._isDown = false;
     this._swipeTriggered = false;
 
-    this.SWIPE_THRESHOLD_X = 35; // пикселей для смены полосы
-    this.SWIPE_THRESHOLD_Y = 40; // пикселей для прыжка/приседа
+    this.SWIPE_THRESHOLD_X = 35; // pixels for lane change
+    this.SWIPE_THRESHOLD_Y = 40; // pixels for jump/slide
 
     this._onMouseDown = (e) => this._handleDown(e);
     this._onMouseMove = (e) => this._handleMove(e);
@@ -43,12 +43,12 @@ export class MouseControl extends BaseControl {
   _handleContextMenu(e) {
     if (!this._enabled) return;
     e.preventDefault();
-    // ПКМ сразу активирует присед
+    // RMB immediately triggers slide
     this._push({ slide: true });
   }
 
   _handleDown(e) {
-    if (e.button === 2) return; // ПКМ обработано в contextmenu
+    if (e.button === 2) return; // RMB handled in contextmenu
     this._isDown = true;
     this._startX = e.clientX;
     this._startY = e.clientY;
@@ -61,20 +61,20 @@ export class MouseControl extends BaseControl {
     const dx = e.clientX - this._startX;
     const dy = e.clientY - this._startY;
 
-    // Горизонтальный свайп
+    // Horizontal swipe
     if (Math.abs(dx) > this.SWIPE_THRESHOLD_X && Math.abs(dx) > Math.abs(dy)) {
       this._push({ laneDelta: dx > 0 ? 1 : -1 });
       this._swipeTriggered = true;
       return;
     }
 
-    // Вертикальный свайп
+    // Vertical swipe
     if (Math.abs(dy) > this.SWIPE_THRESHOLD_Y) {
       if (dy < 0) {
-        // Вверх = прыжок
+        // Up = jump
         this._push({ jump: true });
       } else {
-        // Вниз = присед
+        // Down = slide
         this._push({ slide: true });
       }
       this._swipeTriggered = true;
@@ -84,7 +84,7 @@ export class MouseControl extends BaseControl {
   _handleUp(e) {
     if (!this._isDown) return;
 
-    // Если был короткий клик без свайпа — считаем за прыжок
+    // Short click without swipe counts as jump
     const dx = Math.abs(e.clientX - this._startX);
     const dy = Math.abs(e.clientY - this._startY);
     if (!this._swipeTriggered && dx < 10 && dy < 10 && e.button === 0) {

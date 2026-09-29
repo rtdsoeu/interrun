@@ -1,14 +1,14 @@
 import { BaseControl } from './BaseControl.js';
 
 /**
- * Этап 0 — Управление клавиатурой.
- * WASD / стрелки / Space.
+ * Stage 0 — Keyboard control.
+ * WASD / arrow keys / Space.
  */
 export class KeyboardControl extends BaseControl {
   constructor() {
     super();
     this._held = new Set();
-    this._laneArmed  = true; // флаг: lane action можно снова триггерить
+    this._laneArmed  = true; // flag: lane action can trigger again
     this._jumpArmed  = true;
     this._slideArmed = true;
 
@@ -29,7 +29,7 @@ export class KeyboardControl extends BaseControl {
   }
 
   _keyDown(e) {
-    if (this._held.has(e.code)) return; // игнорируем autorepeat
+    if (this._held.has(e.code)) return; // ignore autorepeat
     this._held.add(e.code);
 
     switch (e.code) {
@@ -58,7 +58,7 @@ export class KeyboardControl extends BaseControl {
   _keyUp(e) {
     this._held.delete(e.code);
 
-    // Перевзводим разрешение после отпускания всех клавиш движения
+    // Re-arm after releasing all lane movement keys
     const noLane = !this._held.has('ArrowLeft') && !this._held.has('KeyA') &&
                    !this._held.has('ArrowRight') && !this._held.has('KeyD');
     if (noLane) this._laneArmed = true;

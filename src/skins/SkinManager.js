@@ -1,26 +1,26 @@
 import * as THREE from 'three';
 
 /**
- * SkinManager — центральный реестр скинов персонажа, тем сцены и препятствий.
- * Поддерживает:
- * - Процедурные модели (работают сразу без внешних файлов)
- * - Внешние glTF (.glb) модели персонажей/объектов
- * - Готовые темы сцен (Город/Метро, Закат в Каньоне, Неоновый Лес)
- * - Стилизацию препятствий и коллекционных монет
+ * SkinManager — central registry of character skins, scene themes, and obstacles.
+ * Supports:
+ * - Procedural models (work immediately without external files)
+ * - External glTF (.glb) character/object models
+ * - Built-in scene themes (City/Metro, Sunset Canyon, Neon Forest)
+ * - Obstacle and collectible coin styling
  */
 export class SkinManager {
   constructor() {
     this.currentThemeId = 'cyber_metro';
     this.currentCharSkinId = 'cyber_neon';
 
-    // Слушатели смены скина
+    // Skin change listeners
     this._listeners = [];
 
-    // Определения тем сцены
+    // Scene theme definitions
     this.themes = {
       cyber_metro: {
         id: 'cyber_metro',
-        name: 'Кибер Метро (Город)',
+        name: 'Cyber Metro (City)',
         fogColor: 0x070b19,
         fogNear: 25,
         fogFar: 140,
@@ -30,12 +30,12 @@ export class SkinManager {
         sleeperColor: 0x1f2438,
         ambientLight: 0x334466,
         directionalLight: 0x88ccff,
-        sideType: 'buildings', // городские высотки и билборды
+        sideType: 'buildings', // city high-rises and billboards
         neonPalette: [0x00e5ff, 0xff007f, 0x7928ca, 0x00ff88]
       },
       sunset_canyon: {
         id: 'sunset_canyon',
-        name: 'Закатный Каньон',
+        name: 'Sunset Canyon',
         fogColor: 0x2b1016,
         fogNear: 30,
         fogFar: 150,
@@ -45,12 +45,12 @@ export class SkinManager {
         sleeperColor: 0x5a3122,
         ambientLight: 0x663322,
         directionalLight: 0xff8844,
-        sideType: 'canyons', // скалы и каньоны
+        sideType: 'canyons', // cliffs and canyons
         neonPalette: [0xff7700, 0xffbb33, 0xff3344, 0xffdd88]
       },
       neon_forest: {
         id: 'neon_forest',
-        name: 'Неоновый Лес',
+        name: 'Neon Forest',
         fogColor: 0x051410,
         fogNear: 25,
         fogFar: 130,
@@ -60,16 +60,16 @@ export class SkinManager {
         sleeperColor: 0x123626,
         ambientLight: 0x114433,
         directionalLight: 0x44ffaa,
-        sideType: 'forest', // биолюминесцентные деревья
+        sideType: 'forest', // bioluminescent trees
         neonPalette: [0x00ff88, 0x00e5ff, 0x88ff00, 0x00ffa3]
       }
     };
 
-    // Определения скинов персонажа
+    // Character skin definitions
     this.characterSkins = {
       cyber_neon: {
         id: 'cyber_neon',
-        name: 'Неон Раннер',
+        name: 'Neon Runner',
         bodyColor: 0x182030,
         accentColor: 0x00e5ff,
         visorColor: 0x00ffff,
@@ -79,20 +79,20 @@ export class SkinManager {
       },
       subway_graffiti: {
         id: 'subway_graffiti',
-        name: 'Сабвей Граффити',
+        name: 'Subway Graffiti',
         bodyColor: 0xff6b35,
         accentColor: 0xffd23f,
-        visorColor: 0x333333, // козырек кепки
+        visorColor: 0x333333, // cap visor
         gloveColor: 0x111111,
         shoesColor: 0xffffff,
         trailColor: 0xff6b35
       },
       shadow_shinobi: {
         id: 'shadow_shinobi',
-        name: 'Теневой Шиноби',
+        name: 'Shadow Shinobi',
         bodyColor: 0x111116,
         accentColor: 0xff2a5f,
-        visorColor: 0xff1744, // светящаяся маска
+        visorColor: 0xff1744, // glowing mask
         gloveColor: 0x22222a,
         shoesColor: 0x331122,
         trailColor: 0xff2a5f

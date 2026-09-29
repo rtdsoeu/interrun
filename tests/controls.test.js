@@ -56,15 +56,20 @@ describe('ScoreSystem (6 Stages: 0 to 5)', () => {
     scoreSystem.update(0.1);
     expect(scoreSystem.stage).toBe(4);
 
-    // Update distance to 1100m -> Stage 5 (MAX_STAGE)
+    // Update distance to 1100m -> Stage 5
     scoreSystem.distance = 1100;
     scoreSystem.update(0.1);
     expect(scoreSystem.stage).toBe(5);
+    expect(scoreSystem.cycle).toBe(0);
 
-    // Beyond MAX_STAGE remains 5
-    scoreSystem.distance = 5000;
+    // At 1360m (completing 1350m cycle): loops back to Stage 0 (Keyboard) with higher speed
+    scoreSystem.distance = 1360;
     scoreSystem.update(0.1);
-    expect(scoreSystem.stage).toBe(5);
+    expect(scoreSystem.stage).toBe(0);
+    expect(scoreSystem.cycle).toBe(1);
+    // Speed on cycle 1 target is 11.0 + 1.5 = 12.5 (higher than cycle 0's 11.0)
+    scoreSystem.update(1.0); // allow speed to interpolate
+    expect(scoreSystem.speed).toBeGreaterThan(12.0);
   });
 
   it('respects lockedStage in debug mode', () => {
@@ -109,6 +114,40 @@ describe('ScoreSystem (6 Stages: 0 to 5)', () => {
     expect(scoreSystem.speed).toBeLessThan(11.0); // decelerating towards 9.0
 
     scoreSystem.setTransitioning(false);
+  });
+
+  it('applies cyclic speed increment when looping back to Stage 0 and avoids Stage 5 endless acceleration', () => {
+    scoreSystem.start(0, false);
+
+    // Stage 5 at 1200m (cycle 0)
+    scoreSystem.distance = 1200;
+    scoreSystem.update(0.1);
+    expect(scoreSystem.stage).toBe(5);
+    expect(scoreSystem.cycle).toBe(0);
+
+    // Target speed for stage 5 in cycle 0 is base 12.0
+    scoreSystem.update(2.0);
+    expect(scoreSystem.speed).toBeCloseTo(12.0, 0.5);
+
+    // Crossing 1350m -> cycle 1, Stage 0 (Keyboard)
+    scoreSystem.distance = 1355;
+    scoreSystem.update(0.1);
+    expect(scoreSystem.stage).toBe(0);
+    expect(scoreSystem.cycle).toBe(1);
+
+    // Target speed for stage 0 in cycle 1 is 11.0 + 1.5 = 12.5
+    scoreSystem.update(2.0);
+    expect(scoreSystem.speed).toBeCloseTo(12.5, 0.5);
+
+    // Crossing 2700m -> cycle 2, Stage 0 (Keyboard)
+    scoreSystem.distance = 2705;
+    scoreSystem.update(0.1);
+    expect(scoreSystem.stage).toBe(0);
+    expect(scoreSystem.cycle).toBe(2);
+
+    // Target speed for stage 0 in cycle 2 is 11.0 + 3.0 = 14.0
+    scoreSystem.update(2.0);
+    expect(scoreSystem.speed).toBeCloseTo(14.0, 0.5);
   });
 });
 
@@ -376,14 +415,13 @@ describe('VisionManager Performance Settings', () => {
   });
 });
 
-describe('SoundFx & Synthwave BGM Engine', () => {
-  it('initializes safely and manages volumes, mute, and BGM modes without errors', async () => {
+describe('SoundFx SFX Engine', () => {
+  it('initializes safely and manages volume, mute, and SFX without errors', async () => {
     const { SoundFx } = await import('../src/audio/SoundFx.js');
 
     const sfx = new SoundFx();
     expect(sfx.muted).toBe(false);
     expect(sfx.sfxVolume).toBeGreaterThan(0);
-    expect(sfx.bgmVolume).toBeGreaterThan(0);
 
     // Mute toggle
     sfx.toggleMute();
@@ -394,15 +432,6 @@ describe('SoundFx & Synthwave BGM Engine', () => {
     // Volume adjustments
     sfx.setSfxVolume(0.5);
     expect(sfx.sfxVolume).toBe(0.5);
-    sfx.setBgmVolume(0.7);
-    expect(sfx.bgmVolume).toBe(0.7);
-
-    // BGM modes
-    sfx.startBGM('menu');
-    sfx.setBgmMode('game');
-    sfx.setBgmMode('transition');
-    sfx.setBgmMode('dead');
-    sfx.stopBGM();
 
     // SFX methods execute cleanly without throwing even in headless environment
     expect(() => {
@@ -413,21 +442,6 @@ describe('SoundFx & Synthwave BGM Engine', () => {
       sfx.playCrash();
       sfx.playStageUp();
     }).not.toThrow();
-
-    // Dedicated MusicPlayer tests
-    const { MusicPlayer, RADIO_STATIONS } = await import('../src/audio/MusicPlayer.js');
-    expect(RADIO_STATIONS.length).toBeGreaterThanOrEqual(4);
-
-    const player = new MusicPlayer();
-    expect(player.stationId).toBeDefined();
-    player.setStation('chillsynth');
-    expect(player.stationId).toBe('chillsynth');
-    player.setStation('synth'); // Procedural 80s synth mode
-    expect(player.stationId).toBe('synth');
-    player.setMode('game');
-    expect(player.mode).toBe('game');
-    player.setMode('dead');
-    expect(player.mode).toBe('dead');
   });
 });
 

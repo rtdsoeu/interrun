@@ -1,12 +1,11 @@
 import { BaseControl } from './BaseControl.js';
 
 /**
- * Этап 4 (400-500м): Управление позой тела (Body Pose Tracking через Computer Vision).
- * Клавиатура ПОЛНОСТЬЮ ОТКЛЮЧЕНА!
- * Управление движениями тела перед вебкамерой:
- * - Реальный физический наклон корпуса влево/вправо = смена полосы
- * - Присед всем телом = присед в игре
- * - Физический прыжок или подъем рук над головой = прыжок в игре
+ * Body Pose Tracking (legacy).
+ * Body movements in front of webcam:
+ * - Physical torso lean left/right = lane change
+ * - Body squat = slide / duck
+ * - Physical jump or raising hands above head = jump
  */
 export class PoseControl extends BaseControl {
   constructor(visionManager) {
@@ -35,7 +34,7 @@ export class PoseControl extends BaseControl {
 
     const { bodyLeanX, isSquatting, isJumping } = this.vision.currentState;
 
-    // 1. Физический наклон корпуса влево/вправо
+    // 1. Torso lean left/right
     if (Math.abs(bodyLeanX) > this.leanThreshold) {
       if (this._laneArmed) {
         const delta = bodyLeanX > 0 ? 1 : -1;
@@ -46,7 +45,7 @@ export class PoseControl extends BaseControl {
       this._laneArmed = true;
     }
 
-    // 2. Прыжок (тело вверх или руки над головой)
+    // 2. Jump (body up or hands above head)
     if (isJumping) {
       if (this._jumpArmed) {
         this._push({ jump: true });
@@ -56,7 +55,7 @@ export class PoseControl extends BaseControl {
       this._jumpArmed = true;
     }
 
-    // 3. Реальный присед всем телом
+    // 3. Body squat
     if (isSquatting) {
       if (this._slideArmed) {
         this._push({ slide: true });

@@ -1,9 +1,8 @@
 import { BaseControl } from './BaseControl.js';
 
 /**
- * Этап 5+ (500м+): Комбинированный микс-режим (Multimodal Mix через Computer Vision).
- * Клавиатура ПОЛНОСТЬЮ ОТКЛЮЧЕНА!
- * Любое движение игрока распознается: наклон головы, жесты рук или наклон корпуса.
+ * Multimodal Mix mode (legacy).
+ * Recognizes head tilt, hand gestures, or body lean.
  */
 export class MixControl extends BaseControl {
   constructor(visionManager) {
@@ -35,7 +34,7 @@ export class MixControl extends BaseControl {
       bodyLeanX, isSquatting, isJumping
     } = this.vision.currentState;
 
-    // Суммарный вектор смещения полосы: берём сигнал с наибольшим abs
+    // Combined steering signal: pick signal with largest absolute value
     const candidates = [bodyLeanX, headRoll, handX];
     const steerSignal = candidates.reduce((best, cur) =>
       Math.abs(cur) > Math.abs(best) ? cur : best, 0
@@ -51,7 +50,7 @@ export class MixControl extends BaseControl {
       this._laneArmed = true;
     }
 
-    // Прыжок (запрокидывание головы, взмах рукой вверх или прыжок телом)
+    // Jump (head pitch up, hand swipe up, or body jump)
     const jumpSignal = (headPitch < -0.28) || handSwipeUp || isJumping;
     if (jumpSignal) {
       if (this._jumpArmed) {
@@ -62,7 +61,7 @@ export class MixControl extends BaseControl {
       this._jumpArmed = true;
     }
 
-    // Присед (наклон головы вниз, взмах рукой вниз или присед телом)
+    // Slide / duck (head pitch down, hand swipe down, or body squat)
     const slideSignal = (headPitch > 0.28) || handSwipeDown || isSquatting;
     if (slideSignal) {
       if (this._slideArmed) {

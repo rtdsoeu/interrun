@@ -17,13 +17,13 @@ export class FingerGestureControl extends BaseControl {
     super();
     this.vision = visionManager;
 
-    /** Абсолютная целевая полоса: -1 (L), 0 (C), 1 (R) */
+    /** Absolute target lane: -1 (L), 0 (C), 1 (R) */
     this._desiredLane = 0;
 
-    /** Флаг приседа */
+    /** Ducking flag */
     this._isDucking = false;
 
-    /** Буфер подтверждения стабильности полосы */
+    /** Lane stability confirmation buffer */
     this._pendingLaneGesture = null;
     this._pendingLaneTimer = 0;
   }
@@ -51,7 +51,7 @@ export class FingerGestureControl extends BaseControl {
 
     const { fgGesture, fgSource } = this.vision.currentState;
 
-    // Нет трекинга — гарантированно сбрасываем присед и буфер смены полос
+    // No tracking — reliably reset ducking and lane change buffer
     if (!fgSource) {
       this._isDucking = false;
       this._pendingLaneGesture = null;
@@ -59,10 +59,10 @@ export class FingerGestureControl extends BaseControl {
       return;
     }
 
-    // Сброс удержания приседа по умолчанию (активно только при явном жесте 'duck')
+    // Ducking hold reset by default (active only during explicit 'duck' gesture)
     this._isDucking = (fgGesture === 'duck');
 
-    // 1. МГНОВЕННЫЕ ДЕЙСТВИЯ (срабатывают сразу, прерывают транзиты)
+    // 1. INSTANT ACTIONS (trigger immediately, interrupt transitions)
     if (fgGesture === 'duck') {
       this._push({ slide: true });
       this._pendingLaneGesture = null;
@@ -78,8 +78,8 @@ export class FingerGestureControl extends BaseControl {
       return;
     }
 
-    // 2. СМЕНА ПОЛОС (требует подтверждения стабильности ~80мс,
-    // чтобы промежуточно согнутые пальцы не вызывали ложных смен полос)
+    // 2. LANE SWITCHES (requires ~80ms stability confirmation
+    // so transitioning curled fingers do not cause false lane shifts)
     if (fgGesture === 'lane_left' || fgGesture === 'lane_center' || fgGesture === 'lane_right') {
       if (this._pendingLaneGesture === fgGesture) {
         this._pendingLaneTimer += dt;
@@ -99,7 +99,7 @@ export class FingerGestureControl extends BaseControl {
   }
 
   /**
-   * Возвращает накопленные команды ввода, включая абсолютную полосу и удержание приседа.
+   * Return accumulated input commands including target lane and ducking hold.
    */
   consume() {
     const res = super.consume();

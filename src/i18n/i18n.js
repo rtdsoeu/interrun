@@ -1,16 +1,16 @@
 /**
- * i18n — минималистичная система локализации InterRun.
+ * i18n — minimal localization system for InterRun.
  *
- * Использование:
+ * Usage:
  *   import { i18n } from './i18n/i18n.js';
- *   i18n.t('menu.play')          // → строка на текущем языке
- *   i18n.setLang('en')           // переключить язык
- *   i18n.onLangChange = (lang) => { ... } // callback на смену языка
+ *   i18n.t('menu.play')          // -> string in active language
+ *   i18n.setLang('en')           // switch language
+ *   i18n.onLangChange = (lang) => { ... } // language change callback
  */
 import { translations } from './translations.js';
 
 const STORAGE_KEY = 'interrun_lang';
-const SUPPORTED = ['en', 'ru', 'uk'];
+const SUPPORTED = ['en', 'uk'];
 
 class I18n {
   constructor() {
@@ -21,8 +21,6 @@ class I18n {
       this._lang = saved;
     } else if (browser === 'uk') {
       this._lang = 'uk';
-    } else if (browser === 'ru') {
-      this._lang = 'ru';
     } else {
       this._lang = 'en';
     }
@@ -31,15 +29,15 @@ class I18n {
     this.onLangChange = null;
   }
 
-  /** Текущий язык */
+  /** Current language */
   get lang() { return this._lang; }
 
-  /** Поддерживаемые языки */
+  /** Supported languages */
   get supported() { return SUPPORTED; }
 
   /**
-   * Переключить язык
-   * @param {'en'|'ru'|'uk'} lang
+   * Switch language
+   * @param {'en'|'uk'} lang
    */
   setLang(lang) {
     if (!SUPPORTED.includes(lang)) return;
@@ -49,9 +47,9 @@ class I18n {
   }
 
   /**
-   * Получить перевод по ключу.
-   * Если ключ не найден — возвращает сам ключ.
-   * Если перевода на текущий язык нет — fallback на 'en'.
+   * Get translation by key.
+   * If key is not found, returns the key itself.
+   * If translation is missing in the current language, falls back to 'en'.
    * @param {string} key
    * @returns {string}
    */
@@ -62,5 +60,5 @@ class I18n {
   }
 }
 
-/** Глобальный синглтон */
+/** Global singleton */
 export const i18n = new I18n();

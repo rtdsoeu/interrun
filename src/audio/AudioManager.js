@@ -1,18 +1,17 @@
 /**
- * AudioManager — архитектурная основа звуковой системы.
+ * AudioManager — Architectural audio foundation for InterRun.
  *
- * Сейчас реализует stub-интерфейс.
- * Для добавления звука:
- *   1. Положите .ogg/.mp3 в public/sounds/
- *   2. В SkinPack.getAudioConfig() верните { bgm: '/sounds/bg.ogg', sfx: { jump: '/sounds/jump.ogg', ... } }
- *   3. Вызовите audioManager.applySkinPack(skinPack) — звуки подгрузятся автоматически
+ * Implements a stub interface for custom sound packs:
+ * 1. Place .ogg/.mp3 files in public/sounds/
+ * 2. In SkinPack.getAudioConfig() return { bgm: '/sounds/bg.ogg', sfx: { jump: '/sounds/jump.ogg', ... } }
+ * 3. Call audioManager.applySkinPack(skinPack) to load sounds automatically
  *
- * Разные скины могут иметь разные звуки — у каждого SkinPack свой AudioConfig.
+ * Different skins can provide unique audio configs.
  */
 export class AudioManager {
   constructor() {
     this._ctx    = null;  // AudioContext (lazy init)
-    this._bgm    = null;  // HTMLAudioElement для BGM
+    this._bgm    = null;  // HTMLAudioElement for BGM
     this._sfx    = {};    // { name: AudioBuffer }
     this._muted  = false;
     this._volume = 0.7;
@@ -20,18 +19,19 @@ export class AudioManager {
     this._loaded = false;
   }
 
-  /** Инициализация AudioContext (требует user gesture) */
+  /** Initialize AudioContext (requires user gesture) */
   async init() {
     if (this._ctx) return;
     try {
-      this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      this._ctx = new AudioCtx();
     } catch (e) {
       console.warn('[AudioManager] Web Audio API unavailable:', e);
     }
   }
 
   /**
-   * Применить аудио-конфиг из SkinPack.
+   * Apply audio config from SkinPack.
    * @param {{ bgm?: string, sfx?: Record<string, string> }} config
    */
   async applySkinPack(config) {
@@ -45,23 +45,23 @@ export class AudioManager {
       if (!this._muted) this._bgm.play().catch(() => {});
     }
 
-    // Загрузка SFX через Web Audio API
+    // Load SFX via Web Audio API
     if (config.sfx && this._ctx) {
       for (const [name, url] of Object.entries(config.sfx)) {
         try {
           const res = await fetch(url);
           const buf = await res.arrayBuffer();
           this._sfx[name] = await this._ctx.decodeAudioData(buf);
-        } catch (_) { /* звук недоступен — игра продолжается */ }
+        } catch (_) { /* audio unavailable, continue silently */ }
       }
     }
     this._loaded = true;
   }
 
   /**
-   * Воспроизвести звуковой эффект.
-   * @param {string} name — ключ из sfx конфига
-   * @param {number} [pitchVariance=0] — случайный pitch ±%
+   * Play a sound effect.
+   * @param {string} name — key from sfx config
+   * @param {number} [pitchVariance=0] — random pitch ±%
    */
   playSFX(name, pitchVariance = 0) {
     if (this._muted || !this._ctx || !this._sfx[name]) return;
@@ -90,7 +90,7 @@ export class AudioManager {
     if (this._bgm) this._bgm.volume = v;
   }
 
-  /** Возобновить AudioContext после взаимодействия */
+  /** Resume AudioContext on interaction */
   resume() {
     if (this._ctx?.state === 'suspended') this._ctx.resume();
     if (this._bgm && !this._muted) this._bgm.play().catch(() => {});

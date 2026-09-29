@@ -1,15 +1,15 @@
 import * as THREE from 'three';
 
 export const ObstacleType = {
-  JUMP_BARRIER: 'jump_barrier',   // низкий барьер — нужно перепрыгнуть
-  SLIDE_BARRIER: 'slide_barrier', // высокий барьер — нужно подлезть под ним в приседе
-  TRAIN_BLOCKER: 'train_blocker', // вагон / сплошной блок — нужно сменить полосу
+  JUMP_BARRIER: 'jump_barrier',   // low barrier — must jump over
+  SLIDE_BARRIER: 'slide_barrier', // high barrier — must slide underneath
+  TRAIN_BLOCKER: 'train_blocker', // train car / solid obstacle — must switch lanes
   COIN: 'coin'
 };
 
 /**
- * ObstacleManager — генерация препятствий и монет с гарантированно
- * точными аналитическими хитбоксами и равномерным расстоянием между рядами.
+ * ObstacleManager — obstacle and coin generation with guaranteed
+ * precise analytical hitboxes and evenly spaced obstacle rows.
  */
 export class ObstacleManager {
   constructor(scene, skinManager, soundFx) {
@@ -21,19 +21,19 @@ export class ObstacleManager {
     this.activeObstacles = [];
     this.activeCoins = [];
 
-    // Группы Three.js
+    // Three.js groups
     this.obstacleGroup = new THREE.Group();
     this.coinGroup = new THREE.Group();
     this.scene.add(this.obstacleGroup);
     this.scene.add(this.coinGroup);
 
-    this.spawnInterval = 30; // расстояние между рядами
+    this.spawnInterval = 30; // distance between rows
     this.furthestZ = -180;
     this.isTransitioning = false;
 
     this._initMaterials();
 
-    // Геометрия монеты
+    // Coin geometry
     this._coinGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.08, 16);
     this._coinGeo.rotateZ(Math.PI / 2);
   }
@@ -103,7 +103,7 @@ export class ObstacleManager {
     this.activeObstacles = [];
     this.activeCoins = [];
 
-    // Начальный посев: первая преграда на Z = -45, последняя на -180
+    // Initial seeding: first obstacle at Z = -45, last at -180
     this.furthestZ = -180;
     for (let z = -45; z >= -180; z -= this.spawnInterval) {
       this.spawnPattern(z, 0.1);
@@ -111,7 +111,7 @@ export class ObstacleManager {
   }
 
   /**
-   * Спавн ряда препятствий и монет
+   * Spawn a row of obstacles and coins
    * @param {number} zPosition
    * @param {number} difficulty 0..1
    */
@@ -144,7 +144,7 @@ export class ObstacleManager {
       }
     }
 
-    // Монеты на свободной полосе
+    // Coins on clear lane
     const freeLane = lanes[count];
     if (freeLane !== undefined && Math.random() > 0.35) {
       this._spawnCoinLine(freeLane, zPosition - 5, 4, 0.5);
@@ -295,7 +295,7 @@ export class ObstacleManager {
   }
 
   update(dt, speed, difficulty = 0, runnerHitbox, onHit, onCoinCollected) {
-    // 1. Продвижение дальнего фронта спавна
+    // 1. Advance furthest spawn front
     this.furthestZ += speed * dt;
     while (this.furthestZ > -150) {
       const spawnZ = this.furthestZ - this.spawnInterval;
@@ -303,7 +303,7 @@ export class ObstacleManager {
       this.furthestZ -= this.spawnInterval;
     }
 
-    // 2. Движение препятствий и точные хитбоксы
+    // 2. Move obstacles and update precise hitboxes
     for (let i = this.activeObstacles.length - 1; i >= 0; i--) {
       const obs = this.activeObstacles[i];
       obs.mesh.position.z += speed * dt;
@@ -335,7 +335,7 @@ export class ObstacleManager {
       }
     }
 
-    // 3. Монеты
+    // 3. Coins
     const coinRotSpeed = 4.2;
     const runnerCenter = runnerHitbox.getCenter(new THREE.Vector3());
 

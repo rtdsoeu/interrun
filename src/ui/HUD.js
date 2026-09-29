@@ -1,12 +1,12 @@
 /**
- * HUD — интерфейс пользователя с поддержкой i18n (en / ru / uk).
- * - Отображение дистанции, монет, жизней, скорости, FPS
- * - Индикатор текущего этапа управления и подсказки
- * - Анонс смены этапа (Stage Announce)
- * - Экран гибели (Game Over)
- * - Панель смены тем сцены и скинов персонажа
- * - Панель дебаг-запуска
- * - Переключатель языка (EN / RU / UK)
+ * HUD — User interface with i18n support (en / uk).
+ * - Distance, coins, lives, speed, FPS display
+ * - Current control stage badge and hints
+ * - Stage Announce banner
+ * - Game Over screen
+ * - Scene themes and character skins modal
+ * - Debug launch panel
+ * - Language switcher (EN / UA)
  */
 import { i18n } from '../i18n/i18n.js';
 import { getHUDHtml } from './templates.js';
@@ -27,7 +27,6 @@ export class HUD {
     this.onApplySettings = null;
     this.onToggleSound = null;
     this.onUpdateAudioSettings = null;
-    this.onUpdateRadioStation = null;
 
     this._isGodMode = false;
     this._isStageLocked = false;
@@ -39,9 +38,7 @@ export class HUD {
       resolution: this.visionManager?.settings?.resolution || (typeof localStorage !== 'undefined' ? localStorage.getItem('interrun_cv_res') : null) || 'balanced',
       targetFps: this.visionManager?.settings?.targetFps || (typeof localStorage !== 'undefined' ? parseInt(localStorage.getItem('interrun_cv_fps') || '30', 10) : 30) || 30,
       pipMode: this.visionManager?.settings?.pipMode || (typeof localStorage !== 'undefined' ? localStorage.getItem('interrun_pip_mode') : null) || 'full',
-      radioStation: this.soundFx?.music?.stationId || (typeof localStorage !== 'undefined' ? localStorage.getItem('interrun_radio_station') : null) || 'nightride',
-      sfxVolume: this.soundFx?.sfxVolume ?? (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_sfx_vol') || '0.8') : 0.8),
-      bgmVolume: this.soundFx?.bgmVolume ?? (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_bgm_vol') || '0.45') : 0.45)
+      sfxVolume: this.soundFx?.sfxVolume ?? (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_sfx_vol') || '0.8') : 0.8)
     };
 
     this._render();
@@ -58,7 +55,6 @@ export class HUD {
     const t = (k) => this._t(k);
     this.root.innerHTML = getHUDHtml(t, i18n, {
       soundMuted: this.soundFx?.muted,
-      radioStation: this._settings.radioStation,
       selectedStage: this._selectedDebugStage,
       selectedSpeed: this._selectedDebugSpeed,
       settings: this._settings
@@ -66,8 +62,8 @@ export class HUD {
   }
 
   /**
-   * Полный перерендер при смене языка.
-   * Сохраняет состояние (выбранный этап, видимость модалок, текущий экран).
+   * Complete rerender on language change.
+   * Preserves state (selected stage, modal visibility, active screen).
    */
   rerender() {
     const isMenuVisible = this.elMenu && !this.elMenu.classList.contains('hidden');
@@ -139,7 +135,7 @@ export class HUD {
     this.elOptLock = document.getElementById('debug-opt-lock');
     this.elOptGod  = document.getElementById('debug-opt-god');
 
-    // Переключатель языка (поддержка click и touch)
+    // Language switcher (click and touch support)
     document.querySelectorAll('.lang-btn').forEach(btn => {
       let touched = false;
       const handleSelectLang = (e) => {
@@ -186,23 +182,23 @@ export class HUD {
       });
     });
 
-    // Камера PIP: fix double-toggle (only trigger onToggleCamera once)
+    // Webcam PIP: fix double-toggle (only trigger onToggleCamera once)
     bindFastTap('btn-toggle-cam', () => {
       if (this.onToggleCamera) this.onToggleCamera();
     });
 
-    // Старт
+    // Start game
     bindFastTap('btn-play', () => {
       this.soundFx?.init();
       if (this.onStartGame) this.onStartGame(0, false, false);
     });
 
-    // Рестарт
+    // Restart game
     bindFastTap('btn-restart', () => {
       if (this.onRestartGame) this.onRestartGame();
     });
 
-    // Скины
+    // Skins modal
     bindFastTap('btn-skin-modal', () => this.elSkinModal?.classList.remove('hidden'));
     bindFastTap('btn-open-skins', () => this.elSkinModal?.classList.remove('hidden'));
     bindFastTap('btn-close-modal', () => this.elSkinModal?.classList.add('hidden'));
@@ -214,7 +210,7 @@ export class HUD {
     bindFastTap('btn-debug-restart', () => this.openDebugModal());
     bindFastTap('btn-close-debug', () => this.closeDebugModal());
 
-    // Выбор этапа в дебаге
+    // Debug stage selector
     document.querySelectorAll('.debug-stage-btn').forEach(btn => {
       bindFastTap(btn, () => {
         this._selectedDebugStage = parseInt(btn.getAttribute('data-stage') || '0', 10);
@@ -230,7 +226,7 @@ export class HUD {
       });
     });
 
-    // Выбор скорости в дебаге
+    // Debug speed selector
     document.querySelectorAll('.debug-speed-btn').forEach(btn => {
       bindFastTap(btn, () => {
         this._selectedDebugSpeed = parseFloat(btn.getAttribute('data-speed') || '1.0');
@@ -238,7 +234,7 @@ export class HUD {
       });
     });
 
-    // Запуск из дебага
+    // Launch level from debug
     bindFastTap('btn-debug-launch-exec', () => {
       this.soundFx?.init();
       const isLocked = !!this.elOptLock?.checked;
@@ -247,7 +243,7 @@ export class HUD {
       if (this.onStartDebug) this.onStartDebug(this._selectedDebugStage, isLocked, isGod, this._selectedDebugSpeed);
     });
 
-    // Применить на ходу
+    // Apply debug options live
     bindFastTap('btn-debug-live-apply', () => {
       const isLocked = !!this.elOptLock?.checked;
       const isGod    = !!this.elOptGod?.checked;
@@ -293,19 +289,11 @@ export class HUD {
         if (group && val) {
           if (group === 'targetFps') {
             this._settings[group] = parseInt(val, 10);
-          } else if (group === 'bgmVolume' || group === 'sfxVolume') {
+          } else if (group === 'sfxVolume') {
             const num = parseFloat(val);
             this._settings[group] = num;
             if (this.onUpdateAudioSettings) {
               this.onUpdateAudioSettings({ [group]: num });
-            }
-          } else if (group === 'radioStation') {
-            this._settings[group] = val;
-            if (this.soundFx?.music) {
-              this.soundFx.music.setStation(val);
-            }
-            if (this.onUpdateRadioStation) {
-              this.onUpdateRadioStation(val);
             }
           } else {
             this._settings[group] = val;
@@ -315,7 +303,7 @@ export class HUD {
       });
     });
 
-    // Темы
+    // Themes
     document.querySelectorAll('.theme-select-btn').forEach(btn => {
       bindFastTap(btn, () => {
         this.skinManager.setTheme(btn.getAttribute('data-theme'));
@@ -323,7 +311,7 @@ export class HUD {
       });
     });
 
-    // Скины персонажа
+    // Character skins
     document.querySelectorAll('.skin-select-btn').forEach(btn => {
       bindFastTap(btn, () => {
         this.skinManager.setCharacterSkin(btn.getAttribute('data-skin'));
@@ -365,10 +353,6 @@ export class HUD {
     }
     if (this.soundFx) {
       this._settings.sfxVolume = this.soundFx.sfxVolume;
-      this._settings.bgmVolume = this.soundFx.bgmVolume;
-      if (this.soundFx.music) {
-        this._settings.radioStation = this.soundFx.music.stationId;
-      }
     }
     this.elSettingsModal?.classList.remove('hidden');
     this._updateSettingsButtons();
@@ -388,7 +372,7 @@ export class HUD {
       const group = btn.getAttribute('data-group');
       const val = btn.getAttribute('data-val');
       let isSelected = false;
-      if (group === 'bgmVolume' || group === 'sfxVolume') {
+      if (group === 'sfxVolume') {
         const numVal = parseFloat(val);
         const curVal = this._settings[group];
         isSelected = Math.abs(numVal - curVal) < 0.18;
@@ -454,7 +438,7 @@ export class HUD {
       btn.style.background  = match ? 'rgba(255,107,53,0.15)' : 'var(--glass)';
     });
 
-    // Подсветка активного языка
+    // Highlight active language
     document.querySelectorAll('.lang-btn').forEach(btn => {
       const active = btn.getAttribute('data-lang') === i18n.lang;
       btn.style.borderColor  = active ? 'var(--accent)' : 'rgba(255,255,255,0.2)';
@@ -568,12 +552,16 @@ export class HUD {
 
     const info = stages[stageNumber] ?? stages[0];
     const lockSuffix = isLocked ? ' 🔒' : '';
+    const currentDist = (this.elDist ? parseInt(this.elDist.textContent || '0', 10) : 0);
+    const cycle = Math.floor(currentDist / 1350);
+    const loopSuffix = cycle > 0 ? ` [${this._t('stage.loop')} ${cycle + 1}]` : '';
 
-    if (this.elStageBadge)  this.elStageBadge.textContent  = info.badge + lockSuffix;
+    if (this.elStageBadge)  this.elStageBadge.textContent  = info.badge + loopSuffix + lockSuffix;
     if (this.elControlHint) this.elControlHint.innerHTML    = info.hint;
 
-    if (stageNumber > 0) {
-      if (this.elStageTitle) this.elStageTitle.textContent = info.title + lockSuffix;
+    const shouldAnnounce = stageNumber > 0 || currentDist > 50;
+    if (shouldAnnounce) {
+      if (this.elStageTitle) this.elStageTitle.textContent = info.title + loopSuffix + lockSuffix;
       if (this.elStageDesc)  this.elStageDesc.textContent  = info.desc;
 
       const announce = document.getElementById('stage-announce');

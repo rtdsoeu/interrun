@@ -1,12 +1,11 @@
 import { BaseControl } from './BaseControl.js';
 
 /**
- * Этап 3 (300-400м): Управление жестами рук (Hand Gestures через Computer Vision).
- * Клавиатура ПОЛНОСТЬЮ ОТКЛЮЧЕНА!
- * Управление только движениями рук перед вебкамерой:
- * - Смещение кисти влево / вправо относительно центра = смена полосы
- * - Резкий взмах рукой вверх = прыжок
- * - Резкий взмах рукой вниз = присед
+ * Hand Gestures control (legacy).
+ * Hand movements in front of webcam:
+ * - Palm shift left / right relative to center = lane change
+ * - Fast hand swipe up = jump
+ * - Fast hand swipe down = slide / duck
  */
 export class HandControl extends BaseControl {
   constructor(visionManager) {
@@ -35,7 +34,7 @@ export class HandControl extends BaseControl {
 
     const { handX, handSwipeUp, handSwipeDown } = this.vision.currentState;
 
-    // 1. Смена полосы по положению кисти
+    // 1. Lane change by hand position
     if (Math.abs(handX) > this.handThresholdX) {
       if (this._laneArmed) {
         const delta = handX > 0 ? 1 : -1;
@@ -46,7 +45,7 @@ export class HandControl extends BaseControl {
       this._laneArmed = true;
     }
 
-    // 2. Прыжок по резкому взмаху вверх
+    // 2. Jump by fast swipe up
     if (handSwipeUp) {
       if (this._jumpArmed) {
         this._push({ jump: true });
@@ -56,7 +55,7 @@ export class HandControl extends BaseControl {
       this._jumpArmed = true;
     }
 
-    // 3. Присед по резкому взмаху вниз
+    // 3. Duck / slide by fast swipe down
     if (handSwipeDown) {
       if (this._slideArmed) {
         this._push({ slide: true });

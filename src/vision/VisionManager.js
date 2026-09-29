@@ -1,9 +1,9 @@
 /**
- * VisionManager — высокопроизводительный модуль компьютерного зрения:
- * - ТРЕКИНГ ВЫНЕСЕН В ОТДЕЛЬНЫЙ ПОТОК (Web Worker).
- * - Главный поток Three.js НЕ БЛОКИРУЕТСЯ И ВЫДАЕТ 60+ FPS.
- * - Передача кадров через zero-copy ImageBitmap Transferable (аппаратный downscale до 256x192).
- * - Наглядная индикация в окне PIP вебкамеры: точки, статус действия, сетка зон.
+ * VisionManager — high-performance computer vision module:
+ * - Tracking executed in dedicated background thread (Web Worker).
+ * - Main Three.js thread is NEVER BLOCKED, maintaining 60+ FPS.
+ * - Frame transfer via zero-copy ImageBitmap Transferable (hardware downscaled).
+ * - Visual overlay in webcam PIP: keypoints, action status, zone grid.
  */
 export const CV_RESOLUTION_PRESETS = {
   eco: { width: 160, height: 120 },
@@ -40,6 +40,7 @@ export class VisionManager {
     this._lastDrawTime = 0;
     this._loopRunning = false;
     this._pendingPreload = false; // set by preloadModels() before worker is ready
+    this._tabHidden = false;      // set by Page Visibility API to pause inference
 
     // CV FPS & Latency metrics
     this.cvFps = 0;
@@ -50,7 +51,7 @@ export class VisionManager {
 
     // Recognition state (thread-safe O(1) read by game engine)
     this.currentState = {
-      // Legacy поля для HeadControl / HandControl / PoseControl / MixControl
+      // Legacy fields for HeadControl / HandControl / PoseControl / MixControl
       headRoll: 0,
       headPitch: 0,
       handX: 0,
@@ -104,8 +105,7 @@ export class VisionManager {
     if (previewCanvas) {
       this.canvas = previewCanvas;
       this.ctx = this.canvas.getContext('2d');
-      this.canvas.width = 320;
-      this.canvas.height = 240;
+      // Dimensions will be set after we know the real camera AR (see _applyVideoSize)
     }
 
     if (this.isReady) {
@@ -131,20 +131,23 @@ export class VisionManager {
         document.body.appendChild(this.video);
       }
 
-      // Request front-facing selfie camera with fallback
+      // Constrain width to ~320px so Windows Camera Frame Server captures
+      // small frames (avoids the 20% CPU overhead of full-resolution capture).
+      // Height is intentionally unconstrained — the camera driver picks the
+      // height that matches its native AR, so portrait phone cameras stay 9:16
+      // instead of being squashed into a forced 4:3 box.
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            width: { ideal: 320 },
-            height: { ideal: 240 },
-            facingMode: 'user'
+            facingMode: 'user',
+            width: { ideal: 320 }
           },
           audio: false
         });
       } catch (userCamErr) {
         console.warn('[VisionManager] facingMode user failed, trying default camera:', userCamErr);
         this.stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
+          video: { width: { ideal: 320 } },
           audio: false
         });
       }
@@ -157,6 +160,8 @@ export class VisionManager {
           } catch (playErr) {
             console.warn('[VisionManager] video.play() warning:', playErr);
           }
+          // Adapt PIP canvas and notify worker of real camera dimensions
+          this._applyVideoSize();
           resolve();
         };
       });
@@ -169,6 +174,15 @@ export class VisionManager {
 
       // Start frame capture loop
       this._startCaptureLoop();
+
+      // Pause CV inference when tab is hidden — saves full 30fps GPU/CPU budget
+      // on the worker when user alt-tabs or minimizes the window.
+      if (typeof document !== 'undefined') {
+        this._onVisibilityChange = () => {
+          this._tabHidden = document.hidden;
+        };
+        document.addEventListener('visibilitychange', this._onVisibilityChange);
+      }
 
       return true;
     } catch (err) {
@@ -191,10 +205,14 @@ export class VisionManager {
         if (msg.type === 'ready') {
           this._workerReady = true;
           console.log('[VisionManager] Web Worker ready!');
+          // Deliver pending video size if camera was already initialised
+          if (this._pendingVideoSize) {
+            this.worker.postMessage({ type: 'setVideoSize', ...this._pendingVideoSize });
+            this._pendingVideoSize = null;
+          }
           if (this.activeMode) {
             this.worker.postMessage({ type: 'setMode', mode: this.activeMode });
           } else if (this._pendingPreload) {
-            // Send the deferred preload now that the worker is initialised
             this.worker.postMessage({ type: 'preload' });
             this._pendingPreload = false;
           }
@@ -244,177 +262,253 @@ export class VisionManager {
   }
 
   /**
-   * Фоновый цикл захвата:
-   * Аппаратный быстрый снимок кадра createImageBitmap (< 0.2мс)
-   * и передача владения без копирования памяти в системный поток Worker.
-   * Рендер Three.js ни на миллисекунду не останавливается!
+   * Reads the real camera resolution after the stream starts, proportionally
+   * sizes the PIP canvas to preserve aspect ratio (no squashing on portrait
+   * phone cameras), and notifies the worker of the actual frame dimensions
+   * so it can compute proportional downscale for the ImageBitmap fallback path.
+   *
+   * The PIP canvas long-side is capped at 320px; the short side is computed
+   * from the real AR.  Examples:
+   *   Desktop 640×480  (4:3 land) → PIP 320×240
+   *   Phone   480×640  (3:4 port) → PIP 240×320
+   *   Phone   720×1280 (9:16 port)→ PIP 180×320
+   */
+  _applyVideoSize() {
+    if (!this.video) return;
+    const vw = this.video.videoWidth  || 320;
+    const vh = this.video.videoHeight || 240;
+    console.log(`[VisionManager] Camera native resolution: ${vw}×${vh}`);
+
+    // Proportionally fit within a 320px bounding box
+    const MAX = 320;
+    const scale = Math.min(MAX / vw, MAX / vh);
+    const pipW  = Math.round(vw * scale);
+    const pipH  = Math.round(vh * scale);
+
+    if (this.canvas) {
+      this.canvas.width  = pipW;
+      this.canvas.height = pipH;
+    }
+
+    // Notify worker so resizeBitmap (fallback path) uses correct proportions
+    if (this.worker && this._workerReady) {
+      this.worker.postMessage({ type: 'setVideoSize', width: vw, height: vh });
+    } else {
+      // Worker not ready yet — stash for delivery in the ready handler
+      this._pendingVideoSize = { width: vw, height: vh };
+    }
+  }
+
+  /**
+   * CV capture loop — uses setTimeout instead of requestAnimationFrame so the
+   * interval is decoupled from the display vsync (60Hz).  This reduces idle
+   * CPU wake-ups from 60/s down to the actual target CV FPS (20–45/s) and
+   * keeps the Three.js rAF loop uncontested on the main thread.
+   *
+   * PIP preview is driven by a separate, slower rAF-based paint loop that only
+   * runs when the PIP element is visible.
    */
   _startCaptureLoop() {
     if (this._loopRunning) return;
     this._loopRunning = true;
 
-    const tick = async () => {
-      if (!this._loopRunning) return;
+    // ── CV capture tick (setTimeout-based, runs at targetFps) ──────────────
+    const supportsVideoFrame = typeof VideoFrame !== 'undefined';
 
-      if (!this.isReady || !this.video) {
-        requestAnimationFrame(tick);
-        return;
-      }
+    const captureTick = supportsVideoFrame
+      // ── Fast path: VideoFrame is zero-copy and fully synchronous.
+      // No await, no GPU blit stall, no microtask delay — the frame reference
+      // is transferred to the worker immediately, tightening the capture→inference
+      // loop and making the setTimeout interval far more precise.
+      ? () => {
+          if (!this._loopRunning) return;
 
-      const now = performance.now();
+          const now = performance.now();
 
-      // Watchdog timer: reset busy flag if worker doesn't respond within 1000ms
-      if (this._workerBusy && now - this._lastSendTime > 1000) {
-        this._workerBusy = false;
-      }
+          if (this._workerBusy && now - this._lastSendTime > 1000) {
+            this._workerBusy = false;
+          }
 
-      // Dynamic target FPS dispatch (e.g., 20fps = 50ms, 30fps = 33ms, 45fps = 22ms, 60fps = 16.6ms)
-      const targetInterval = Math.round(1000 / (this.settings.targetFps || 30));
-      // 8ms tolerance prevents skipping 60Hz display refresh frames due to sub-millisecond timer jitter
-      const shouldSend = (now - this._lastSendTime >= targetInterval - 8);
+          if (
+            !this._tabHidden &&
+            !this._workerBusy &&
+            this._workerReady &&
+            this.worker &&
+            this.activeMode &&
+            this.video &&
+            this.video.readyState >= 2
+          ) {
+            this._workerBusy = true;
+            this._lastSendTime = now;
 
-      if (
-        shouldSend &&
-        !this._workerBusy &&
-        this._workerReady &&
-        this.worker &&
-        this.activeMode &&
-        this.video.readyState >= 2
-      ) {
-        this._workerBusy = true;
-        this._lastSendTime = now;
+            try {
+              const frame = new VideoFrame(this.video);
+              this.worker.postMessage(
+                { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
+                [frame]
+              );
+            } catch (e) {
+              this._workerBusy = false;
+            }
+          }
 
-        try {
-          // Dynamic hardware downscaling based on performance settings (native GPU texture path)
-          const preset = CV_RESOLUTION_PRESETS[this.settings.resolution] || CV_RESOLUTION_PRESETS.balanced;
-          const bitmap = await createImageBitmap(this.video, {
-            resizeWidth: preset.width,
-            resizeHeight: preset.height
-          });
-
-          // Transferable Objects: zero-copy ownership transfer to Web Worker
-          this.worker.postMessage(
-            {
-              type: 'process',
-              bitmap,
-              timestamp: now,
-              mode: this.activeMode
-            },
-            [bitmap]
-          );
-        } catch (e) {
-          this._workerBusy = false;
+          if (!this._loopRunning) return;
+          // Poll at 16ms (≈60Hz) regardless of targetFps — _workerBusy prevents
+          // double-sending. This eliminates the "missed tick" FPS halving when
+          // inference occasionally runs just over the targetFps interval.
+          this._captureTimer = setTimeout(captureTick, 16);
         }
-      }
+      // ── Fallback path: createImageBitmap (older browsers without VideoFrame)
+      : async () => {
+          if (!this._loopRunning) return;
 
-      // Render PIP preview and overlay markers
+          const now = performance.now();
+
+          if (this._workerBusy && now - this._lastSendTime > 1000) {
+            this._workerBusy = false;
+          }
+
+          if (
+            !this._tabHidden &&
+            !this._workerBusy &&
+            this._workerReady &&
+            this.worker &&
+            this.activeMode &&
+            this.video &&
+            this.video.readyState >= 2
+          ) {
+            this._workerBusy = true;
+            this._lastSendTime = now;
+
+            try {
+              const frame = await createImageBitmap(this.video);
+              this.worker.postMessage(
+                { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
+                [frame]
+              );
+            } catch (e) {
+              this._workerBusy = false;
+            }
+          }
+
+          if (!this._loopRunning) return;
+          this._captureTimer = setTimeout(captureTick, 16);
+        };
+
+    // ── PIP paint tick (rAF-based, ~22 FPS cap, skips when PIP hidden) ─────
+    const paintTick = () => {
+      if (!this._loopRunning) return;
+      const now = performance.now();
       this._renderPreview(now);
-
-      requestAnimationFrame(tick);
+      requestAnimationFrame(paintTick);
     };
 
-    requestAnimationFrame(tick);
+    // Kick off both loops
+    this._captureTimer = setTimeout(captureTick, 16);
+    requestAnimationFrame(paintTick);
   }
 
   _renderPreview(now) {
     if (!this.ctx || !this.canvas) return;
 
+    // Skip rendering if PIP is hidden
     const pip = document.getElementById('webcam-pip');
-    if (pip && pip.classList.contains('hidden')) return;
+    if (!pip || pip.classList.contains('hidden')) return;
 
-    // If PIP is turned off by user, keep it hidden and skip rendering
+    // If PIP is turned off by user, hide and bail
     if (this.settings.pipMode === 'off') {
-      if (pip && !pip.classList.contains('hidden')) {
-        pip.classList.add('hidden');
-      }
+      pip.classList.add('hidden');
       return;
     }
 
+    // ~22 FPS cap for PIP overlay (45ms minimum between draws)
     if (now - this._lastDrawTime < 45) return;
     this._lastDrawTime = now;
 
     const W = this.canvas.width;
     const H = this.canvas.height;
+    const ctx = this.ctx;
 
     if (this.settings.pipMode === 'minimal') {
-      // Minimal mode: skip drawing video to completely avoid 2D canvas blit GPU overhead
-      this.ctx.fillStyle = '#080d1a';
-      this.ctx.fillRect(0, 0, W, H);
+      // Minimal mode: solid fill — avoids GPU video-blit overhead entirely
+      ctx.fillStyle = '#080d1a';
+      ctx.fillRect(0, 0, W, H);
     } else {
-      // Full mode: draw mirrored webcam video stream
-      this.ctx.save();
-      this.ctx.clearRect(0, 0, W, H);
-      this.ctx.translate(W, 0);
-      this.ctx.scale(-1, 1);
-      this.ctx.drawImage(this.video, 0, 0, W, H);
-      this.ctx.restore();
+      // Full mode: mirrored webcam video — single save/restore wraps the transform
+      ctx.save();
+      ctx.clearRect(0, 0, W, H);
+      ctx.setTransform(-1, 0, 0, 1, W, 0); // mirror in one step, no scale()
+      ctx.drawImage(this.video, 0, 0, W, H);
+      ctx.restore();
     }
 
-    // В zone/handzone-режиме рисуем сетку 3×3 и подсвечиваем активную зону
+    // Zone grid overlay (stage 2 & 3)
     if (this.activeMode === 'zone' || this.activeMode === 'handzone') {
       this._renderZoneGrid(W, H);
     }
 
-    // Отрисовка маркеров, вычисленных в фоновом потоке
-    if (this.currentState.points && this.currentState.points.length > 0) {
-      for (const p of this.currentState.points) {
+    // Landmark points from worker (no save/restore — plain arc fills)
+    const pts = this.currentState.points;
+    if (pts && pts.length > 0) {
+      for (const p of pts) {
         this._drawPoint(p.x, p.y, p.color || '#00e5ff', p.r || 4);
       }
     }
 
-    // Recognition status text overlay
-    if (this.currentState.debugText) {
-      this.ctx.save();
-      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-      this.ctx.fillRect(6, 6, 180, 22);
-      this.ctx.fillStyle = '#00e5ff';
-      this.ctx.font = 'bold 11px Outfit, sans-serif';
-      this.ctx.fillText(this.currentState.debugText, 12, 21);
-      this.ctx.restore();
-    }
-
-    // Live CV FPS & latency badge in top-right corner
-    if (this.cvFps > 0) {
-      this.ctx.save();
-      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.70)';
-      this.ctx.fillRect(W - 74, 6, 68, 22);
-      this.ctx.fillStyle = this.cvFps >= 25 ? '#00e5ff' : this.cvFps >= 15 ? '#ffd700' : '#ff3d5e';
-      this.ctx.font = 'bold 10px monospace';
-      this.ctx.textAlign = 'right';
-      this.ctx.fillText(`${this.cvFps} FPS`, W - 10, 21);
-      this.ctx.restore();
+    // Status + FPS badges — batched into one save/restore block
+    const hasText = !!this.currentState.debugText;
+    const hasFps  = this.cvFps > 0;
+    if (hasText || hasFps) {
+      ctx.save();
+      if (hasText) {
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(6, 6, 180, 22);
+        ctx.fillStyle = '#00e5ff';
+        ctx.font = 'bold 11px Outfit, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(this.currentState.debugText, 12, 21);
+      }
+      if (hasFps) {
+        ctx.fillStyle = 'rgba(0,0,0,0.70)';
+        ctx.fillRect(W - 74, 6, 68, 22);
+        ctx.fillStyle = this.cvFps >= 25 ? '#00e5ff' : this.cvFps >= 15 ? '#ffd700' : '#ff3d5e';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${this.cvFps} FPS`, W - 10, 21);
+      }
+      ctx.restore();
     }
   }
 
   /**
-   * Рисует сетку зон и подсвечивает активную ячейку.
-   * Линии рисуются по РЕАЛЬНЫМ порогам (не равномерная треть экрана).
-   * Рука:  X 33/66%, Y 22/78%
-   * Лицо:  X 40/60%, Y 28/72%
+   * Draws zone grid and highlights active cell.
+   * Lines are drawn based on REAL thresholds (not uniform screen thirds).
+   * Hand: X 33/66%, Y 22/78%
+   * Face: X 40/60%, Y 28/72%
    */
   _renderZoneGrid(W, H) {
     const isHand = this.activeMode === 'handzone' || (this.activeMode === 'zone' && this.currentState.zoneSource === 'hands');
     const isFace = !isHand;
 
-    // Реальные пороги X
+    // Real thresholds X
     const xLeftPct  = isFace ? 0.40 : 0.33;
     const xRightPct = isFace ? 0.60 : 0.66;
 
-    // Реальные пороги Y (увеличенная верхняя зона)
+    // Real thresholds Y (enlarged upper zone)
     const yTopPct = isFace ? 0.35 : 0.33;
     const yBotPct = isFace ? 0.72 : 0.76;
 
-    // Активная колонка/строка
+    // Active column / row
     const col = this.activeMode === 'handzone' ? this.currentState.hzCol : this.currentState.zoneCol;
     const row = this.activeMode === 'handzone' ? this.currentState.hzRow : this.currentState.zoneRow;
 
-    // Пиксельные координаты разделителей
+    // Pixel divider coordinates
     const xL = xLeftPct  * W;
     const xR = xRightPct * W;
     const yT = yTopPct   * H;
     const yB = yBotPct   * H;
 
-    // --- Подсветка активной ячейки ---
+    // --- Active cell highlight ---
     const x0 = col === 'L' ? 0  : col === 'R' ? xR : xL;
     const x1 = col === 'L' ? xL : col === 'R' ? W  : xR;
     const y0 = row === 'top' ? 0  : row === 'bot' ? yB : yT;
@@ -430,7 +524,7 @@ export class VisionManager {
     this.ctx.fillStyle = actionColors[`${row}-${col}`] || 'rgba(255,255,255,0.06)';
     this.ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
 
-    // --- Линии сетки по реальным порогам ---
+    // --- Grid lines based on real thresholds ---
     this.ctx.strokeStyle = 'rgba(255,255,255,0.30)';
     this.ctx.lineWidth = 1;
     this.ctx.setLineDash([3, 3]);
@@ -448,7 +542,7 @@ export class VisionManager {
       this.ctx.stroke();
     }
 
-    // --- Иконки в ячейках ---
+    // --- Icons in cells ---
     this.ctx.setLineDash([]);
     this.ctx.font = 'bold 9px sans-serif';
     this.ctx.textAlign = 'center';
@@ -482,7 +576,7 @@ export class VisionManager {
     this.ctx.beginPath();
     this.ctx.arc(normX * this.canvas.width, normY * this.canvas.height, radius, 0, Math.PI * 2);
     this.ctx.fill();
-    // Обводка для лучшей видимости
+    // Border for enhanced visibility
     this.ctx.strokeStyle = 'rgba(0,0,0,0.5)';
     this.ctx.lineWidth = 1.5;
     this.ctx.stroke();
@@ -490,7 +584,7 @@ export class VisionManager {
   }
 
   update() {
-    // Состояние считывается контроллерами мгновенно O(1) из фонового потока
+    // State is read by controllers instantaneously O(1) from worker state
   }
 
   applySettings(newSettings) {
@@ -524,6 +618,19 @@ export class VisionManager {
   }
 
   stop() {
+    // Stop capture loop
+    this._loopRunning = false;
+    if (this._captureTimer) {
+      clearTimeout(this._captureTimer);
+      this._captureTimer = null;
+    }
+
+    // Remove page visibility listener
+    if (this._onVisibilityChange && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._onVisibilityChange);
+      this._onVisibilityChange = null;
+    }
+
     if (this.stream) {
       this.stream.getTracks().forEach((t) => t.stop());
       this.stream = null;
@@ -534,6 +641,5 @@ export class VisionManager {
     }
     this.isReady = false;
     this._workerReady = false;
-    this._loopRunning = false;
   }
 }

@@ -1,13 +1,13 @@
 /**
- * PointerControl — Этап 1: Управление мышью И тачскрином (touch).
- * Заменяет MouseControl. Поддерживает мобильные устройства нативно.
+ * PointerControl — Stage 1: Mouse and Touchscreen swipe control.
+ * Replaces legacy MouseControl. Natively supports mobile devices.
  *
- * Управление:
- * - Свайп влево/вправо → смена полосы
- * - Свайп вверх → прыжок
- * - Свайп вниз → присед
- * - Короткий тап (без свайпа) → прыжок
- * - ПКМ / двойной тап правой кнопкой → присед
+ * Controls:
+ * - Swipe left/right → lane change
+ * - Swipe up → jump
+ * - Swipe down → duck / slide
+ * - Quick tap (without swipe) → jump
+ * - Right click → duck / slide
  */
 import { BaseControl } from './BaseControl.js';
 
@@ -20,17 +20,17 @@ export class PointerControl extends BaseControl {
     this._isDown = false;
     this._swipeTriggered = false;
 
-    // Пороги чуть меньше — для пальца комфортнее
+    // Thresholds tuned for comfortable touch and mouse usage
     this.SWIPE_THRESHOLD_X = 30;
     this.SWIPE_THRESHOLD_Y = 35;
 
-    // Привязанные обработчики (mouse)
+    // Bound handlers (mouse)
     this._onMouseDown     = (e) => { if (this._isUIElement(e.target)) return; this._handleDown(e.clientX, e.clientY, e.button); };
     this._onMouseMove     = (e) => this._handleMove(e.clientX, e.clientY);
     this._onMouseUp       = (e) => { if (this._isUIElement(e.target)) return; this._handleUp(e.clientX, e.clientY, e.button); };
     this._onContextMenu   = (e) => { e.preventDefault(); if (this._enabled) this._push({ slide: true }); };
 
-    // Привязанные обработчики (touch)
+    // Bound handlers (touch)
     this._onTouchStart = (e) => {
       if (this._isUIElement(e.target)) return;
       const t = e.touches[0];
@@ -47,12 +47,12 @@ export class PointerControl extends BaseControl {
     };
   }
 
-  /** Возвращает true если элемент — интерактивный UI (кнопка, ссылка, инпут) */
+  /** Returns true if element is an interactive UI element (button, link, input) */
   _isUIElement(el) {
     if (!el) return false;
     const tag = el.tagName?.toLowerCase();
     if (tag === 'button' || tag === 'a' || tag === 'input' || tag === 'select') return true;
-    // Ищем ближайшего интерактивного предка
+    // Look for closest interactive ancestor
     return !!el.closest('button, a, input, [data-no-swipe]');
   }
 
@@ -110,7 +110,7 @@ export class PointerControl extends BaseControl {
     const dx = Math.abs(x - this._startX);
     const dy = Math.abs(y - this._startY);
 
-    // Короткий тап без свайпа → прыжок
+    // Quick tap without swipe → jump
     if (!this._swipeTriggered && dx < 12 && dy < 12 && button === 0) {
       this._push({ jump: true });
     }

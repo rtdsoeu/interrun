@@ -44,6 +44,51 @@ if (typeof self.import === 'undefined') {
   };
 }
 
+// Resolution presets — must match VisionManager.CV_RESOLUTION_PRESETS
+const CV_RESOLUTION_PRESETS = {
+  eco:      { width: 160, height: 120 },
+  balanced: { width: 256, height: 192 },
+  high:     { width: 320, height: 240 },
+};
+
+// Actual camera dimensions — set via 'setVideoSize' message after camera starts.
+// Used by resizeBitmap() to compute proportional downscale preserving real AR.
+let _nativeW = 320;
+let _nativeH = 240;
+
+// Cached OffscreenCanvas for resize — reused across frames, reallocated only
+// when the resolution preset changes (e.g., user switches eco ↔ balanced).
+let _resizeCanvas = null;
+let _resizeCtx    = null;
+let _resizeKey    = null; // e.g. '160x120'
+
+function resizeBitmap(bitmap, resolution) {
+  const preset = CV_RESOLUTION_PRESETS[resolution] || CV_RESOLUTION_PRESETS.high;
+
+  // Compute proportional target dimensions that fit within the preset's pixel
+  // budget while preserving the real camera AR (no squashing for portrait cams).
+  const srcW = bitmap.width  || _nativeW;
+  const srcH = bitmap.height || _nativeH;
+  const scale = Math.min(preset.width / srcW, preset.height / srcH);
+
+  // Skip resize if already at or below target (no upscale)
+  if (scale >= 1) return bitmap;
+
+  const targetW = Math.round(srcW * scale);
+  const targetH = Math.round(srcH * scale);
+  const key = `${targetW}x${targetH}`;
+
+  if (_resizeKey !== key) {
+    // Dimensions changed — allocate new canvas (rare: only on preset or AR change)
+    _resizeCanvas = new OffscreenCanvas(targetW, targetH);
+    _resizeCtx    = _resizeCanvas.getContext('2d', { alpha: false, desynchronized: true });
+    _resizeKey    = key;
+  }
+  _resizeCtx.drawImage(bitmap, 0, 0, targetW, targetH);
+  bitmap.close();
+  return _resizeCanvas.transferToImageBitmap();
+}
+
 let visionTasks = null;
 let faceLandmarker = null;
 let handLandmarker = null;
@@ -141,6 +186,17 @@ async function createModel(Creator, wasm, localPath, cdnPath, opts) {
     }
   }
   throw lastErr;
+}
+
+// ---------------------------------------------------------------------------
+// Geometry helpers
+// ---------------------------------------------------------------------------
+
+/** 2-D Euclidean distance between two {x,y} landmark points */
+function dist2D(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
 // ---------------------------------------------------------------------------
@@ -323,35 +379,52 @@ self.onmessage = async (e) => {
       return;
     }
 
+    if (data.type === 'setVideoSize') {
+      _nativeW = data.width  || 320;
+      _nativeH = data.height || 240;
+      // Invalidate cached resize canvas — dimensions may have changed
+      _resizeKey = null;
+      console.log(`[VisionWorker] Native camera size: ${_nativeW}×${_nativeH}`);
+      return;
+    }
+
     if (data.type === 'setMode') {
       await ensureModel(data.mode);
       return;
     }
 
     if (data.type === 'process') {
-      const { bitmap, timestamp, mode } = data;
-      if (!bitmap) {
+      const { frame: rawFrame, timestamp, mode, resolution } = data;
+      if (!rawFrame) {
         self.postMessage({ type: 'processed', state: null });
         return;
       }
+
+      // VideoFrame fast path: pass directly to MediaPipe — it performs its own
+      // internal GPU-accelerated resize to the model's tensor dimensions.
+      // No OffscreenCanvas step needed, saving ~1ms of worker JS per frame.
+      //
+      // ImageBitmap fallback path (older browsers): resize via cached OffscreenCanvas.
+      const isVideoFrame = typeof VideoFrame !== 'undefined' && rawFrame instanceof VideoFrame;
+      const frame = isVideoFrame ? rawFrame : resizeBitmap(rawFrame, resolution);
 
       try {
         let state = null;
 
         if (mode === 'face' && faceLandmarker) {
-          state = processFace(bitmap, timestamp);
+          state = processFace(frame, timestamp);
         } else if (mode === 'hands' && handLandmarker) {
-          state = processHands(bitmap, timestamp);
+          state = processHands(frame, timestamp);
         } else if ((mode === 'pose' || mode === 'mix') && poseLandmarker) {
-          state = processPose(bitmap, timestamp);
+          state = processPose(frame, timestamp);
         } else if (mode === 'zone') {
-          state = processZone(bitmap, timestamp);
+          state = processZone(frame, timestamp);
         } else if (mode === 'handzone') {
-          state = processHandZone(bitmap, timestamp);
+          state = processHandZone(frame, timestamp);
         } else if (mode === 'fingergesture') {
-          state = processFingerGesture(bitmap, timestamp);
+          state = processFingerGesture(frame, timestamp);
         } else if (mode === 'handswipe') {
-          state = processHandSwipe(bitmap, timestamp);
+          state = processHandSwipe(frame, timestamp);
         }
 
         self.postMessage({ type: 'processed', state });
@@ -359,7 +432,7 @@ self.onmessage = async (e) => {
         console.warn(`[VisionWorker] Error processing ${mode}:`, err);
         self.postMessage({ type: 'processed', state: null, error: err.message });
       } finally {
-        bitmap.close();
+        frame.close();
       }
     }
   } catch (fatalErr) {
@@ -719,12 +792,6 @@ function processFingerGesture(bitmap, timestamp) {
     const ringTip   = hand[16]; const ringDIP  = hand[15]; const ringPIP  = hand[14]; const ringMCP = hand[13];
     const pinkyTip  = hand[20]; const pinkyDIP = hand[19]; const pinkyPIP = hand[18]; const pinkyMCP = hand[17];
 
-    function dist2D(a, b) {
-      const dx = a.x - b.x;
-      const dy = a.y - b.y;
-      return Math.sqrt(dx * dx + dy * dy);
-    }
-
     const wristToMid = dist2D(wrist, hand[9]);
     const scale = wristToMid + 1e-5;
 
@@ -887,13 +954,16 @@ function processHandSwipe(bitmap, timestamp) {
     }
   }
 
-  // Push new point
+  // Push new point and prune old entries with an O(1) index pointer.
+  // Using Array.shift() in a while-loop is O(n) per frame; instead we find
+  // the first index still within the 220ms window and slice once.
   hsTrail.push({ x: handX, y: handY, time: timestamp });
-
-  // Retain only points within the last 220ms
-  while (hsTrail.length > 0 && (timestamp - hsTrail[0].time) > 220) {
-    hsTrail.shift();
+  const cutoff = timestamp - 220;
+  let startIdx = 0;
+  while (startIdx < hsTrail.length - 1 && hsTrail[startIdx].time < cutoff) {
+    startIdx++;
   }
+  if (startIdx > 0) hsTrail = hsTrail.slice(startIdx);
 
   let detectedSwipe = null;
 

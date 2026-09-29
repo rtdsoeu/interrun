@@ -1,25 +1,25 @@
 import * as THREE from 'three';
 
 /**
- * CameraRig — абсолютно стабильная камера третьего лица (Subway Surfers):
- * - Горизонт всегда строго зафиксирован (camera.up = 0, 1, 0)
- * - Никаких переворотов, кренов и калейдоскопов
- * - Плавный лаг по горизонтали при смене полосы
- * - Мягкое отслеживание прыжка (персонаж подпрыгивает в кадре, камера не скачет)
- * - Безопасный FOV в диапазоне 62°..70°
- * - Легкая позиционная тряска при ударе (без вращения камеры)
+ * CameraRig — completely stable third-person camera (Subway Surfers style):
+ * - Horizon is always strictly locked (camera.up = 0, 1, 0)
+ * - No flips, rolls, or disorienting angles
+ * - Smooth horizontal lag during lane changes
+ * - Soft vertical following (character jumps in frame, camera stays stable)
+ * - Safe FOV range of 62°..70°
+ * - Subtle positional shake on impact (no camera rotations)
  */
 export class CameraRig {
   constructor(camera) {
     this.camera = camera;
 
-    // Базовые координаты камеры относительно бегуна
+    // Base camera coordinates relative to runner
     this.baseHeight = 3.3;
     this.baseDistance = 5.8;
     this.lookHeight = 1.3;
     this.lookDistance = 15.0;
 
-    // Текущие сглаженные координаты камеры
+    // Current smoothed camera coordinates
     this.currentX = 0;
     this.currentY = this.baseHeight;
 
@@ -28,7 +28,7 @@ export class CameraRig {
     this.maxFOV = 70;
     this.currentFOV = 62;
 
-    // Травма (тряска)
+    // Trauma (camera shake)
     this.trauma = 0;
 
     this.reset();
@@ -52,24 +52,24 @@ export class CameraRig {
   }
 
   update(dt, playerPos, playerXVelocity = 0, speedNorm = 0, isSliding = false) {
-    // 1. Плавный горизонтальный лаг (сглаженное следование за бегуном)
+    // 1. Smooth horizontal lag (damped following behind runner)
     const xFollowFactor = 1 - Math.exp(-8.5 * dt);
     this.currentX = THREE.MathUtils.lerp(this.currentX, playerPos.x, xFollowFactor);
 
-    // 2. Мягкое вертикальное следование:
-    // Камера реагирует только на 22% от высоты прыжка — персонаж взмывает вверх в кадре!
+    // 2. Soft vertical following:
+    // Camera reacts to only ~22% of jump height — character ascends visually in frame!
     const slideDrop = isSliding ? -0.3 : 0;
     const targetY = this.baseHeight + Math.max(0, playerPos.y * 0.22) + slideDrop;
     const yFollowFactor = 1 - Math.exp(-6.0 * dt);
     this.currentY = THREE.MathUtils.lerp(this.currentY, targetY, yFollowFactor);
 
-    // 3. Плавный и безопасный динамический FOV (строго 62..70 градусов)
+    // 3. Smooth and safe dynamic FOV (strictly 62..70 degrees)
     const targetFOV = THREE.MathUtils.lerp(this.baseFOV, this.maxFOV, THREE.MathUtils.clamp(speedNorm, 0, 1));
     const fovFactor = 1 - Math.exp(-2.0 * dt);
     this.currentFOV = THREE.MathUtils.lerp(this.currentFOV, targetFOV, fovFactor);
     this.camera.fov = THREE.MathUtils.clamp(this.currentFOV, 60, 72);
 
-    // 4. Позиционная тряска экрана при ударе (только координаты, строго в пределах ±0.15м)
+    // 4. Positional screen shake on impact (translation only, strictly within ±0.15m)
     let shakeX = 0;
     let shakeY = 0;
     if (this.trauma > 0.005) {
@@ -81,15 +81,15 @@ export class CameraRig {
       this.trauma = Math.max(0, this.trauma - dt * 2.5);
     }
 
-    // 5. Установка позиции камеры (Z фиксирован сзади бегуна)
+    // 5. Apply camera position (Z locked behind runner)
     this.camera.position.set(
       this.currentX + shakeX,
       this.currentY + shakeY,
       this.baseDistance
     );
 
-    // 6. Направление взгляда вперед по трассе
-    // Вектор up ВСЕГДА (0, 1, 0) — горизонт 100% зафиксирован и никогда не переворачивается!
+    // 6. Look target forward along track
+    // Up vector is ALWAYS (0, 1, 0) — horizon is 100% stable and never tilts!
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(
       playerPos.x * 0.6,

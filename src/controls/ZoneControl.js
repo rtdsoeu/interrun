@@ -22,10 +22,10 @@ export class ZoneControl extends BaseControl {
     super();
     this.vision = visionManager;
 
-    // Абсолютная целевая полоса: -1 (L), 0 (C), 1 (R)
+    // Absolute target lane: -1 (L), 0 (C), 1 (R)
     this._desiredLane = 0;
 
-    // Флаг приседа (активен пока зона bot)
+    // Ducking flag (active while zone is bot)
     this._isDucking = false;
   }
 
@@ -48,16 +48,16 @@ export class ZoneControl extends BaseControl {
 
     const { zoneCol, zoneRow, zoneSource } = this.vision.currentState;
 
-    // Нет трекинга — сбрасываем присед и сохраняем текущую полосу
+    // No tracking — reset ducking and preserve current lane
     if (!zoneSource) {
       this._isDucking = false;
       return;
     }
 
-    // 1. Абсолютное позиционирование полосы:
-    // Голова слева -> бежит в левой полосе (-1)
-    // Голова по центру -> бежит по центру (0)
-    // Голова справа -> бежит в правой полосе (1)
+    // 1. Absolute lane positioning:
+    // Head on left -> runner in left lane (-1)
+    // Head in center -> runner in center lane (0)
+    // Head on right -> runner in right lane (1)
     if (zoneCol === 'L') {
       this._desiredLane = -1;
     } else if (zoneCol === 'R') {
@@ -66,17 +66,17 @@ export class ZoneControl extends BaseControl {
       this._desiredLane = 0;
     }
 
-    // 2. Абсолютный присед: пока зона bot — бежит внизу (в приседе / подкате)
+    // 2. Absolute ducking: while zone is bot — runner stays down (ducking / sliding)
     this._isDucking = (zoneRow === 'bot');
 
-    // 3. Непрерывный прыжок: пока зона top — персонаж непрерывно прыгает (bunny-hop)
+    // 3. Continuous jump: while zone is top — character jumps repeatedly (bunny-hop)
     if (zoneRow === 'top') {
       this._push({ jump: true });
     }
   }
 
   /**
-   * Возвращает накопленные команды ввода, включая абсолютную полосу и удержание приседа.
+   * Return accumulated input commands including target lane and ducking hold.
    */
   consume() {
     const res = super.consume();

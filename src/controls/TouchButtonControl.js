@@ -1,13 +1,13 @@
 /**
- * TouchButtonControl — мобильный виртуальный D-pad (оверлей поверх игры).
+ * TouchButtonControl — mobile virtual D-pad (overlay over game).
  *
- * Показывается автоматически на touch-устройствах или через hud.showTouchButtons().
- * Кнопки:
- *   ←  →  — смена полосы (нижняя часть экрана, левый угол)
- *   ↑      — прыжок (правый нижний угол, большая кнопка)
- *   ↓      — присед (над ↑)
+ * Shown automatically on touch devices or via hud.showTouchButtons().
+ * Buttons:
+ *   ←  →  — lane change (bottom left)
+ *   ↑      — jump (bottom right, primary button)
+ *   ↓      — slide / duck (above ↑)
  *
- * Не регистрирует глобальные события — работает через onpointerdown на DOM-элементах.
+ * Does not register global window events — operates via onpointerdown on DOM elements.
  */
 import { BaseControl } from './BaseControl.js';
 
@@ -61,14 +61,14 @@ export class TouchButtonControl extends BaseControl {
 
     document.body.appendChild(this._overlay);
 
-    // Привязка действий
+    // Bind action callbacks
     this._bindBtn('dpad-left',  () => this._push({ laneDelta: -1 }));
     this._bindBtn('dpad-right', () => this._push({ laneDelta:  1 }));
     this._bindBtn('dpad-jump',  () => this._push({ jump: true }));
     this._bindBtn('dpad-slide', () => this._push({ slide: true }));
   }
 
-  /** Генерирует inline HTML кнопки */
+  /** Generates inline HTML button */
   _btn(id, icon, color, size = '64px') {
     return `
       <button id="${id}" style="
@@ -90,7 +90,7 @@ export class TouchButtonControl extends BaseControl {
     `;
   }
 
-  /** Привязывает pointerdown и визуальный feedback */
+  /** Binds pointerdown and visual feedback */
   _bindBtn(id, action) {
     const el = document.getElementById(id);
     if (!el) return;

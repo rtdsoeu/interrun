@@ -26,7 +26,7 @@ html, body {
   position: fixed; inset: 0;
   display: block;
   width: 100%; height: 100%;
-  /* Отключаем zoom по двойному тапу и ghost clicks на мобиле */
+  /* Disable double-tap zoom and ghost clicks on mobile */
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
@@ -51,7 +51,7 @@ html, body {
   gap: 10px;
   pointer-events: none;
 }
-/* Когда HUD скрыт — никаких событий */
+/* When HUD is hidden — no pointer events */
 #hud.hidden { pointer-events: none !important; }
 
 #hud-top {
@@ -293,7 +293,7 @@ html, body {
   background: radial-gradient(ellipse at 50% 100%, rgba(0,100,180,0.2) 0%, transparent 70%),
               radial-gradient(ellipse at 30% 20%, rgba(100,0,180,0.15) 0%, transparent 60%);
   backdrop-filter: blur(0px);
-  /* По умолчанию не перехватывает тач — активно только когда видимо */
+  /* By default does not intercept touch — active only when visible */
   pointer-events: none;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -331,7 +331,7 @@ html, body {
   pointer-events: all;
   text-decoration: none;
   letter-spacing: 0.5px;
-  /* Убираем 300ms delay на touch-устройствах */
+  /* Remove 300ms delay on touch devices */
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
@@ -716,7 +716,7 @@ html, body {
   color: var(--accent);
 }
 
-/* ─── Zone CV PIP увеличен ─── */
+/* ─── Zone CV PIP enlarged ─── */
 #webcam-pip {
   transition: opacity 0.3s ease;
 }

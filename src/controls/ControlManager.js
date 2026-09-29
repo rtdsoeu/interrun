@@ -1,13 +1,13 @@
 /**
- * ControlManager — плагинная система управления.
+ * ControlManager — plugin-based control system.
  *
- * Добавить новое управление в одну строку:
+ * Register new control scheme:
  *   controlManager.register(2, new HeadControl());
  *
- * Переключить этап:
+ * Switch stage:
  *   controlManager.setStage(2);
  *
- * Получить события кадра:
+ * Consume frame events:
  *   const { laneDelta, jump, slide } = controlManager.consume();
  */
 export class ControlManager {
@@ -20,7 +20,7 @@ export class ControlManager {
   }
 
   /**
-   * Регистрация схемы управления для этапа.
+   * Register a control scheme for a stage.
    * @param {number} stage
    * @param {import('./BaseControl.js').BaseControl} control
    */
@@ -29,7 +29,7 @@ export class ControlManager {
   }
 
   /**
-   * Переключить активный этап.
+   * Switch active stage.
    * @param {number} stage
    */
   setStage(stage) {
@@ -45,7 +45,7 @@ export class ControlManager {
     if (this.onStageChange) this.onStageChange(stage, prev);
   }
 
-  /** Текущий этап */
+  /** Current active stage */
   get stage() { return this._stage; }
 
   /** @returns {{ laneDelta: number, jump: boolean, slide: boolean }} */

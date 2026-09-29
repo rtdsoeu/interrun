@@ -8,8 +8,8 @@ export const PlayerState = {
 };
 
 /**
- * Runner — игровой персонаж с 3 полосами движения, физикой прыжка и приседа,
- * процедурным анимированным телом и поддержкой переключения скинов.
+ * Runner — player character with 3 lanes of movement, jump and duck physics,
+ * procedural animated body, and skin switching support.
  */
 export class Runner {
   constructor(scene, soundFx) {
@@ -24,30 +24,30 @@ export class Runner {
     this.prevX = 0;
     this.xVelocity = 0;
 
-    // Физика прыжка
+    // Jump physics
     this.yVelocity = 0;
     this.jumpSpeed = 11.5;
     this.gravity = 28.0;
 
-    // Присед (слайд)
+    // Slide (duck) physics
     this.slideTimer = 0;
     this.slideDuration = 0.75;
 
-    // Микро-задержки между состояниями (cooldowns)
-    this.actionDelay = 0.18; // ~180 мс между последовательными прыжками / приседами
+    // Micro-cooldowns between states
+    this.actionDelay = 0.18; // ~180 ms between consecutive jumps / slides
     this.jumpCooldown = 0;
     this.slideCooldown = 0;
 
     this.state = PlayerState.RUNNING;
     this.runCycleTime = 0;
 
-    // Размеры коллизии
+    // Collision dimensions
     this.normalHeight = 1.8;
     this.slideHeight = 0.75;
     this.width = 0.8;
     this.hitbox = new THREE.Box3();
 
-    // Создаем 3D-модель персонажа
+    // Create character 3D model
     this.meshGroup = new THREE.Group();
     this.scene.add(this.meshGroup);
 
@@ -55,12 +55,12 @@ export class Runner {
     this._parts = {};
     this._buildProceduralCharacter();
 
-    // Трейл / свечение кроссовок
+    // Footwear trail / glow effect
     this._buildTrailEffect();
   }
 
   _buildProceduralCharacter() {
-    // Базовые материалы
+    // Base materials
     this._materials.body = new THREE.MeshStandardMaterial({
       color: 0x182030,
       roughness: 0.4,
@@ -89,7 +89,7 @@ export class Runner {
       roughness: 0.6
     });
 
-    // 1. Торс
+    // 1. Torso
     const torsoGeo = new THREE.BoxGeometry(0.55, 0.65, 0.32);
     const torso = new THREE.Mesh(torsoGeo, this._materials.body);
     torso.position.y = 1.15;
@@ -97,19 +97,19 @@ export class Runner {
     this.meshGroup.add(torso);
     this._parts.torso = torso;
 
-    // Акцентные неоновые полосы на торсе
+    // Accent neon stripes on torso
     const stripeGeo = new THREE.BoxGeometry(0.57, 0.1, 0.34);
     const stripe = new THREE.Mesh(stripeGeo, this._materials.accent);
     torso.add(stripe);
 
-    // Рюкзак / джетпак
+    // Backpack / jetpack
     const packGeo = new THREE.BoxGeometry(0.38, 0.45, 0.18);
     const pack = new THREE.Mesh(packGeo, this._materials.limbs);
     pack.position.set(0, 0.05, 0.24);
     pack.castShadow = true;
     torso.add(pack);
 
-    // Неоновые турбины рюкзака
+    // Backpack neon thrusters
     const thrusterGeo = new THREE.CylinderGeometry(0.06, 0.08, 0.12, 12);
     const thrusterL = new THREE.Mesh(thrusterGeo, this._materials.accent);
     thrusterL.position.set(-0.12, -0.22, 0.24);
@@ -120,7 +120,7 @@ export class Runner {
     thrusterR.position.x = 0.12;
     torso.add(thrusterR);
 
-    // 2. Голова
+    // 2. Head
     const headGeo = new THREE.BoxGeometry(0.36, 0.36, 0.36);
     const head = new THREE.Mesh(headGeo, this._materials.body);
     head.position.y = 1.68;
@@ -128,19 +128,19 @@ export class Runner {
     this.meshGroup.add(head);
     this._parts.head = head;
 
-    // Визор / шлем
+    // Visor / helmet
     const visorGeo = new THREE.BoxGeometry(0.38, 0.12, 0.2);
     const visor = new THREE.Mesh(visorGeo, this._materials.visor);
     visor.position.set(0, 0.02, -0.12);
     head.add(visor);
 
-    // Кепка / наушники
+    // Cap / headphones
     const capGeo = new THREE.BoxGeometry(0.4, 0.08, 0.42);
     const cap = new THREE.Mesh(capGeo, this._materials.accent);
     cap.position.y = 0.18;
     head.add(cap);
 
-    // 3. Руки (шарниры плеч)
+    // 3. Arms (shoulder joints)
     const armGeo = new THREE.BoxGeometry(0.14, 0.55, 0.14);
 
     const shoulderL = new THREE.Group();
@@ -161,7 +161,7 @@ export class Runner {
     this.meshGroup.add(shoulderR);
     this._parts.shoulderR = shoulderR;
 
-    // 4. Ноги (шарниры бедер)
+    // 4. Legs (hip joints)
     const legGeo = new THREE.BoxGeometry(0.18, 0.6, 0.18);
     const shoeGeo = new THREE.BoxGeometry(0.2, 0.12, 0.32);
 
@@ -195,7 +195,7 @@ export class Runner {
     this.meshGroup.add(hipR);
     this._parts.hipR = hipR;
 
-    // Тень под персонажем (декоративный блоб)
+    // Drop shadow under character (decorative blob)
     const shadowGeo = new THREE.PlaneGeometry(0.9, 1.3);
     const shadowMat = new THREE.MeshBasicMaterial({
       color: 0x000000,
@@ -211,7 +211,7 @@ export class Runner {
   }
 
   _buildTrailEffect() {
-    // Неоновые частицы за персонажем
+    // Neon trail particles behind character
     const count = 24;
     const geo = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
@@ -234,7 +234,7 @@ export class Runner {
   }
 
   /**
-   * Применить скин персонажа
+   * Apply character skin
    * @param {Object} skinConfig
    */
   applySkin(skinConfig) {
@@ -292,13 +292,13 @@ export class Runner {
   }
 
   /**
-   * Обработка команд управления
-   * @param {{ laneDelta: number, jump: boolean, slide: boolean }} input
+   * Handle control input commands
+   * @param {{ laneDelta: number, jump: boolean, slide: boolean, targetLane?: number, isDucking?: boolean }} input
    */
   handleInput(input) {
     if (this.state === PlayerState.CRASHED) return;
 
-    // Смена полосы (абсолютная целевая полоса targetLane или относительная дельта laneDelta)
+    // Lane switching (absolute target lane targetLane or relative delta laneDelta)
     if (input.targetLane !== undefined && input.targetLane !== null) {
       const nextLane = THREE.MathUtils.clamp(input.targetLane, -1, 1);
       if (nextLane !== this.currentLane) {
@@ -315,11 +315,11 @@ export class Runner {
       }
     }
 
-    // Присед / слайд
+    // Duck / slide
     const wantsDuck = Boolean(input.isDucking || input.slide);
     if (wantsDuck) {
       if (this.state === PlayerState.JUMPING) {
-        // Fast drop вниз при нажатии "вниз" во время прыжка
+        // Fast drop down when pressing "down" during jump
         this.yVelocity = -this.jumpSpeed * 1.5;
         this.slideTimer = this.slideDuration;
         if (this.soundFx) this.soundFx.playSlide();
@@ -330,7 +330,7 @@ export class Runner {
       }
     }
 
-    // Прыжок
+    // Jump
     if (input.jump && this.jumpCooldown <= 0) {
       if (this.state === PlayerState.RUNNING || this.state === PlayerState.SLIDING) {
         if (this.state === PlayerState.SLIDING) {
@@ -352,7 +352,7 @@ export class Runner {
   update(dt, currentSpeed) {
     this.prevX = this.pos.x;
 
-    // Таймеры микро-задержки между одинаковыми состояниями
+    // Micro-delay cooldown timers between identical states
     if (this.jumpCooldown > 0) {
       this.jumpCooldown -= dt;
     }
@@ -360,12 +360,12 @@ export class Runner {
       this.slideCooldown -= dt;
     }
 
-    // 1. Горизонтальное смещение между полосами (snappy spring lerp)
+    // 1. Horizontal lane transition (snappy spring lerp)
     const laneLerpSpeed = 16.0;
     this.pos.x = THREE.MathUtils.lerp(this.pos.x, this.targetX, 1 - Math.exp(-laneLerpSpeed * dt));
     this.xVelocity = dt > 0 ? (this.pos.x - this.prevX) / dt : 0;
 
-    // 2. Вертикальная физика (гравитация и прыжок)
+    // 2. Vertical physics (gravity and jump)
     if (this.state === PlayerState.JUMPING) {
       this.pos.y += this.yVelocity * dt;
       this.yVelocity -= this.gravity * dt;
@@ -378,7 +378,7 @@ export class Runner {
       }
     }
 
-    // 3. Таймер приседа (слайда)
+    // 3. Slide timer
     if (this.state === PlayerState.SLIDING) {
       this.slideTimer -= dt;
       if (this.slideTimer <= 0) {
@@ -390,34 +390,34 @@ export class Runner {
       }
     }
 
-    // Применяем координаты к 3D группе
+    // Apply coordinates to 3D mesh group
     this.meshGroup.position.copy(this.pos);
 
-    // 4. Процедурная анимация персонажа
+    // 4. Procedural character animation
     this._animateCharacter(dt, currentSpeed);
 
-    // 5. Обновление хитбокса коллизии
+    // 5. Update collision hitbox
     this._updateHitbox();
 
-    // 6. Обновление шлейфа частиц
+    // 6. Update particle trail
     this._updateTrail(dt);
   }
 
   _animateCharacter(dt, speed) {
     if (this.state === PlayerState.CRASHED) {
-      // Анимация падения при столкновении
+      // Crash knockdown animation
       this.meshGroup.rotation.x = THREE.MathUtils.lerp(this.meshGroup.rotation.x, -Math.PI * 0.45, 10 * dt);
       this.meshGroup.rotation.z = THREE.MathUtils.lerp(this.meshGroup.rotation.z, 0.4, 10 * dt);
       this.meshGroup.position.y = THREE.MathUtils.lerp(this.meshGroup.position.y, 0.2, 10 * dt);
       return;
     }
 
-    // Наклон персонажа при перестроении
+    // Character banking tilt during lane switches
     const targetTilt = -THREE.MathUtils.clamp(this.xVelocity * 0.05, -0.3, 0.3);
     this.meshGroup.rotation.z = THREE.MathUtils.lerp(this.meshGroup.rotation.z, targetTilt, 14 * dt);
 
     if (this.state === PlayerState.SLIDING) {
-      // Поза приседа: персонаж пригибается к земле, наклон назад
+      // Slide posture: character ducks close to ground, leans backward
       this._parts.torso.position.y = 0.55;
       this._parts.torso.rotation.x = -0.55;
       this._parts.head.position.y = 0.85;
@@ -437,7 +437,7 @@ export class Runner {
       return;
     }
 
-    // Возвращаем базовые высоты частей тела
+    // Reset base heights of body parts
     this._parts.torso.position.y = 1.15;
     this._parts.torso.rotation.x = 0.1;
     this._parts.head.position.y = 1.68;
@@ -448,33 +448,33 @@ export class Runner {
     this._parts.hipR.position.y = 0.8;
 
     if (this.state === PlayerState.JUMPING) {
-      // Поза прыжка: ноги чуть поджаты, руки разведены для равновесия
+      // Jump posture: legs tucked, arms spread for balance
       this._parts.hipL.rotation.x = THREE.MathUtils.lerp(this._parts.hipL.rotation.x, -0.5, 12 * dt);
       this._parts.hipR.rotation.x = THREE.MathUtils.lerp(this._parts.hipR.rotation.x, 0.4, 12 * dt);
       this._parts.shoulderL.rotation.x = THREE.MathUtils.lerp(this._parts.shoulderL.rotation.x, -0.9, 12 * dt);
       this._parts.shoulderR.rotation.x = THREE.MathUtils.lerp(this._parts.shoulderR.rotation.x, -0.9, 12 * dt);
 
-      // Масштаб тени уменьшается при подъеме
+      // Shadow shrinks as player jumps higher
       const shadowScale = Math.max(0.3, 1 - this.pos.y * 0.25);
       this._parts.groundShadow.scale.set(shadowScale, shadowScale, 1);
       this._parts.groundShadow.material.opacity = 0.45 * shadowScale;
       return;
     }
 
-    // Обычный бег: активные взмахи руками и ногами
-    const runFreq = speed * 1.1; // частота шагов пропорциональна скорости
+    // Normal run: arm and leg stride swinging
+    const runFreq = speed * 1.1; // step frequency proportional to speed
     this.runCycleTime += dt * runFreq;
 
     const legSwing = Math.sin(this.runCycleTime) * 0.75;
     const armSwing = Math.sin(this.runCycleTime) * 0.75;
 
-    // Противофаза рук и ног
+    // Opposite phase for arms and legs
     this._parts.hipL.rotation.x = legSwing;
     this._parts.hipR.rotation.x = -legSwing;
     this._parts.shoulderL.rotation.x = -armSwing;
     this._parts.shoulderR.rotation.x = armSwing;
 
-    // Легкое покачивание тела вверх-вниз при беге (head bob)
+    // Head bobbing while running
     const bob = Math.abs(Math.sin(this.runCycleTime)) * 0.08;
     this._parts.torso.position.y = 1.15 + bob;
     this._parts.head.position.y = 1.68 + bob;
@@ -505,14 +505,14 @@ export class Runner {
   _updateTrail(dt) {
     if (!this._trailParticles) return;
 
-    // Сдвигаем историю точек назад
+    // Shift point history backwards
     for (let i = this._trailHistory.length - 1; i > 0; i--) {
       this._trailHistory[i].x = this._trailHistory[i - 1].x;
       this._trailHistory[i].y = this._trailHistory[i - 1].y;
-      this._trailHistory[i].z = this._trailHistory[i - 1].z + 0.3; // удаляются назад
+      this._trailHistory[i].z = this._trailHistory[i - 1].z + 0.3; // move backwards
     }
 
-    // Новая точка у пяток
+    // New point at heels
     this._trailHistory[0] = {
       x: this.pos.x + (Math.random() - 0.5) * 0.2,
       y: this.pos.y + 0.1,
@@ -527,7 +527,7 @@ export class Runner {
   }
 
   /**
-   * Точка расширения для подключения внешней 3D-модели glTF
+   * Extension point for external glTF 3D model
    * @param {THREE.Group} modelMesh
    * @param {THREE.AnimationAction[]} [actions]
    */

@@ -1,10 +1,8 @@
 /**
  * SoundFx — Sound effects synthesizer for InterRun:
  * - Generates crisp Web Audio SFX (jump, slide, lane switch, coin, crash, stage up).
- * - Delegates background music and online radio playback to MusicPlayer.
  * - Manages volume and mute routing.
  */
-import { MusicPlayer } from './MusicPlayer.js';
 
 export class SoundFx {
   constructor() {
@@ -20,20 +18,15 @@ export class SoundFx {
     this.sfxVolume = savedSfx !== null ? parseFloat(savedSfx) : 0.8;
     this.volume = this.sfxVolume;
 
-    // Dedicated background music and online radio player
-    this.music = new MusicPlayer();
-
     // Auto-bind one-time interaction unlock listeners
     this._bindUnlockListeners();
   }
 
   get bgmVolume() {
-    return this.music.volume;
+    return 0;
   }
 
-  set bgmVolume(val) {
-    this.music.setVolume(val);
-  }
+  set bgmVolume(_val) {}
 
   _bindUnlockListeners() {
     if (typeof window === 'undefined') return;
@@ -94,7 +87,6 @@ export class SoundFx {
     if (this._ctx && this._ctx.state === 'suspended') {
       this._ctx.resume().catch(() => {});
     }
-    this.music?.unlock();
   }
 
   init() {
@@ -110,13 +102,10 @@ export class SoundFx {
     this._updateGains();
   }
 
-  setBgmVolume(vol) {
-    this.music.setVolume(vol);
-  }
+  setBgmVolume(_vol) {}
 
   setVolume(vol) {
     this.setSfxVolume(vol);
-    this.setBgmVolume(vol);
   }
 
   setMuted(muted) {
@@ -125,7 +114,6 @@ export class SoundFx {
       localStorage.setItem('interrun_muted', String(this.muted));
     }
     this._updateGains();
-    this.music.setMuted(this.muted);
   }
 
   toggleMute() {
@@ -134,32 +122,15 @@ export class SoundFx {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // BGM / Radio Delegation
+  // BGM / Music Stubs (Music removed)
   // ─────────────────────────────────────────────────────────────────────────
 
-  startBGM(mode = 'game') {
-    this.music.play(mode);
-  }
-
-  stopBGM() {
-    this.music.stop();
-  }
-
-  pauseBGM() {
-    this.music.pause();
-  }
-
-  resumeBGM() {
-    this.music.play();
-  }
-
-  setBgmMode(mode) {
-    this.music.setMode(mode);
-  }
-
-  setRadioStation(stationId) {
-    this.music.setStation(stationId);
-  }
+  startBGM() {}
+  stopBGM() {}
+  pauseBGM() {}
+  resumeBGM() {}
+  setBgmMode() {}
+  setRadioStation() {}
 
   // ─────────────────────────────────────────────────────────────────────────
   // SOUND EFFECTS

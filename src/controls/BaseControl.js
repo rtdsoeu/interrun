@@ -1,41 +1,41 @@
 /**
- * BaseControl — интерфейс для всех схем управления.
+ * BaseControl — interface for all control schemes.
  *
- * Для добавления нового управления:
- *   1. Создайте класс, расширяющий BaseControl
- *   2. Переопределите _onEnable, _onDisable, update
- *   3. Вызывайте this._push({ laneDelta, jump, slide }) при событии
- *   4. Зарегистрируйте: controlManager.register(stageNumber, new YourControl())
+ * To add a new control scheme:
+ *   1. Create a class extending BaseControl
+ *   2. Override _onEnable, _onDisable, update
+ *   3. Call this._push({ laneDelta, jump, slide }) on event
+ *   4. Register: controlManager.register(stageNumber, new YourControl())
  */
 export class BaseControl {
   constructor() {
     this._enabled = false;
-    // Очередь событий — одно нажатие = одно действие
+    // Event queue — one trigger = one action
     this._pending = { laneDelta: 0, jump: false, slide: false };
   }
 
-  /** Активировать схему управления */
+  /** Activate control scheme */
   enable() {
     this._enabled = true;
     this._reset();
     this._onEnable();
   }
 
-  /** Деактивировать схему управления */
+  /** Deactivate control scheme */
   disable() {
     this._onDisable();
     this._reset();
     this._enabled = false;
   }
 
-  /** @protected Переопределите для логики активации */
+  /** @protected Override for activation logic */
   _onEnable() {}
 
-  /** @protected Переопределите для логики деактивации */
+  /** @protected Override for deactivation logic */
   _onDisable() {}
 
   /**
-   * @protected Вызывается событием, накапливает input.
+   * @protected Called by events, accumulates input.
    * @param {{ laneDelta?: number, jump?: boolean, slide?: boolean }} action
    */
   _push(action) {
@@ -52,8 +52,8 @@ export class BaseControl {
   }
 
   /**
-   * Вызывается каждый кадр Runner'ом.
-   * Возвращает накопленные события и сбрасывает их.
+   * Called every frame by Runner.
+   * Returns accumulated events and resets them.
    * @returns {{ laneDelta: number, jump: boolean, slide: boolean }}
    */
   consume() {
@@ -62,7 +62,7 @@ export class BaseControl {
     return result;
   }
 
-  /** Вызывается каждый кадр движком. Переопределите для аналогового ввода. */
+  /** Called every frame by the engine. Override for continuous/analog input. */
   update(_dt) {}
 
   get isEnabled() { return this._enabled; }

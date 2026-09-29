@@ -2,14 +2,11 @@
  * UI HTML Templates for InterRun HUD and Modals.
  * Extracted from HUD.js to maintain modularity, readability, and clean architecture.
  */
-import { RADIO_STATIONS } from '../audio/MusicPlayer.js';
-
 export function getHUDHtml(t, i18n, state = {}) {
   const isMuted = !!state.soundMuted;
-  const currentRadio = state.radioStation || 'nightride';
 
   return `
-    <!-- HUD Во время игры -->
+    <!-- In-Game HUD -->
     <div id="hud" class="hidden">
       <div id="hud-top">
         <div class="hud-panel hud-dist-panel">
@@ -96,14 +93,14 @@ export function getHUDHtml(t, i18n, state = {}) {
 
       <div id="control-hint" class="visible">${t('stage.0.hint')}</div>
 
-      <!-- PIP вебкамеры -->
+      <!-- Webcam PIP -->
       <div id="webcam-pip" class="hidden" style="position:fixed; bottom:20px; right:20px; width:200px; height:150px; background:rgba(0,0,0,0.85); border:1px solid rgba(0,229,255,0.4); border-radius:12px; overflow:hidden; z-index:40; pointer-events:all; box-shadow:0 8px 32px rgba(0,0,0,0.6);">
         <canvas id="webcam-canvas" style="width:100%; height:100%; object-fit:cover; display:block;"></canvas>
         <div id="webcam-fps-badge" style="position:absolute; top:6px; right:6px; font-size:10px; font-weight:800; color:#00e5ff; background:rgba(0,0,0,0.7); border:1px solid rgba(0,229,255,0.4); border-radius:6px; padding:2px 6px; font-family:monospace; pointer-events:none;">-- FPS</div>
         <div id="webcam-status" style="position:absolute; bottom:4px; left:6px; right:6px; font-size:9px; font-weight:700; color:#00e5ff; text-transform:uppercase; letter-spacing:1px; text-shadow:0 1px 3px #000; text-align:center;" data-i18n="hud.cam.active">${t('hud.cam.active')}</div>
       </div>
 
-      <!-- Баннер обратного отсчёта до смены этапа -->
+      <!-- Stage Transition Countdown Banner -->
       <div id="stage-countdown-banner" class="hidden" style="position:fixed; top:72px; left:50%; transform:translateX(-50%); z-index:50; pointer-events:none; display:flex; flex-direction:column; align-items:center;">
         <div style="background:rgba(10,15,30,0.94); border:1px solid rgba(0,229,255,0.6); box-shadow:0 8px 32px rgba(0,0,0,0.8), 0 0 24px rgba(0,229,255,0.3); border-radius:18px; padding:10px 24px; display:flex; align-items:center; gap:16px; backdrop-filter:blur(12px);">
           <div style="position:relative; width:46px; height:46px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
@@ -124,7 +121,7 @@ export function getHUDHtml(t, i18n, state = {}) {
       </div>
     </div>
 
-    <!-- Анонс нового этапа -->
+    <!-- Stage Announcement -->
     <div id="stage-transition">
       <div id="stage-announce">
         <span id="stage-title">${t('stage.1.title')}</span>
@@ -132,7 +129,7 @@ export function getHUDHtml(t, i18n, state = {}) {
       </div>
     </div>
 
-    <!-- Главное меню -->
+    <!-- Main Menu -->
     <div id="menu">
       <h1 class="menu-title">INTERRUN</h1>
       <div class="menu-sub" data-i18n="menu.subtitle">${t('menu.subtitle')}</div>
@@ -143,10 +140,9 @@ export function getHUDHtml(t, i18n, state = {}) {
         <button id="btn-open-skins" class="btn btn-ghost" data-i18n="menu.skins">${t('menu.skins')}</button>
       </div>
 
-      <!-- Переключатель языка -->
+      <!-- Language Switcher -->
       <div id="lang-switcher" style="display:flex; gap:8px; justify-content:center; margin-top:12px;">
         <button class="lang-btn ${i18n.lang === 'en' ? 'active' : ''}" data-lang="en">🇬🇧 EN</button>
-        <button class="lang-btn ${i18n.lang === 'ru' ? 'active' : ''}" data-lang="ru">🇷🇺 RU</button>
         <button class="lang-btn ${i18n.lang === 'uk' ? 'active' : ''}" data-lang="uk">🇺🇦 UA</button>
       </div>
 
@@ -176,7 +172,7 @@ export function getHUDHtml(t, i18n, state = {}) {
       </div>
     </div>
 
-    <!-- Гардероб & Темы -->
+    <!-- Wardrobe & Themes -->
     <div id="skin-modal" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(16px); z-index:100; display:flex; align-items:center; justify-content:center; pointer-events:all;">
       <div style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:20px; padding:32px; width:90%; max-width:580px; display:flex; flex-direction:column; gap:22px; color:#fff;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -223,7 +219,7 @@ export function getHUDHtml(t, i18n, state = {}) {
           <button id="btn-close-debug" style="background:none; border:none; color:rgba(255,255,255,0.6); font-size:24px; cursor:pointer;">✕</button>
         </div>
 
-        <!-- Выбор этапа -->
+        <!-- Stage Selection -->
         <div>
           <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--accent); margin-bottom:8px;" data-i18n="debug.stage.sel">${t('debug.stage.sel')}</div>
           <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:8px;" id="debug-stage-selector">
@@ -254,7 +250,7 @@ export function getHUDHtml(t, i18n, state = {}) {
           </div>
         </div>
 
-        <!-- Выбор скорости (Speed Multiplier) -->
+        <!-- Speed Multiplier Selection -->
         <div>
           <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#00ff88; margin-bottom:8px;" data-i18n="debug.speed.sel">${t('debug.speed.sel')}</div>
           <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:6px;" id="debug-speed-selector">
@@ -281,7 +277,7 @@ export function getHUDHtml(t, i18n, state = {}) {
           </div>
         </div>
 
-        <!-- Опции -->
+        <!-- Options -->
         <div style="display:flex; flex-direction:column; gap:12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:14px 18px;">
           <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none;">
             <div>
@@ -302,12 +298,12 @@ export function getHUDHtml(t, i18n, state = {}) {
           </label>
         </div>
 
-        <!-- Подсказка горячих клавиш -->
+        <!-- Hotkeys Hint -->
         <div style="font-size:11px; color:rgba(255,255,255,0.5); line-height:1.7; background:rgba(0,229,255,0.04); border:1px solid rgba(0,229,255,0.12); border-radius:10px; padding:10px 14px;">
           <span data-i18n="debug.hotkeys">${t('debug.hotkeys')}</span>
         </div>
 
-        <!-- Кнопки действий -->
+        <!-- Action Buttons -->
         <div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
           <button id="btn-debug-live-apply" class="btn btn-ghost" style="padding:10px 16px; font-size:13px; border-color:rgba(0,229,255,0.3);" data-i18n="debug.apply">
             ${t('debug.apply')}
@@ -333,7 +329,7 @@ export function getHUDHtml(t, i18n, state = {}) {
           <button id="btn-close-settings" style="background:none; border:none; color:rgba(255,255,255,0.6); font-size:24px; cursor:pointer;">✕</button>
         </div>
 
-        <!-- Разрешение нейросети (CV Resolution) -->
+        <!-- CV Resolution -->
         <div>
           <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--accent); margin-bottom:8px;" data-i18n="settings.cv_res">${t('settings.cv_res')}</div>
           <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px;" id="settings-res-group">
@@ -349,7 +345,7 @@ export function getHUDHtml(t, i18n, state = {}) {
           </div>
         </div>
 
-        <!-- Целевой FPS нейросети (Target FPS) -->
+        <!-- Target CV FPS -->
         <div>
           <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#ffd700; margin-bottom:8px;" data-i18n="settings.cv_fps">${t('settings.cv_fps')}</div>
           <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:6px;" id="settings-fps-group">
@@ -368,7 +364,7 @@ export function getHUDHtml(t, i18n, state = {}) {
           </div>
         </div>
 
-        <!-- Режим отображения вебкамеры (PIP Mode) -->
+        <!-- Webcam PIP Display Mode -->
         <div>
           <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#00ff88; margin-bottom:8px;" data-i18n="settings.pip_mode">${t('settings.pip_mode')}</div>
           <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px;" id="settings-pip-group">
@@ -384,41 +380,9 @@ export function getHUDHtml(t, i18n, state = {}) {
           </div>
         </div>
 
-        <!-- Радиостанция и фоновая музыка (Online Radio / BGM) -->
+        <!-- Sound Effects (SFX) -->
         <div>
-          <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#00e5ff; margin-bottom:8px;" data-i18n="settings.radio">${t('settings.radio')}</div>
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:6px;" id="settings-radio-group">
-            ${RADIO_STATIONS.map(st => `
-              <button class="setting-opt-btn btn-ghost ${st.id === currentRadio ? 'selected' : ''}" data-group="radioStation" data-val="${st.id}" style="padding:8px 6px; font-size:11px; border-radius:10px; cursor:pointer; text-align:left;">
-                <div style="font-weight:700; color:#fff;" data-i18n="radio.${st.id}">${t('radio.' + st.id)}</div>
-                <div style="font-size:9px; color:rgba(255,255,255,0.5);">${st.genre}</div>
-              </button>
-            `).join('')}
-          </div>
-        </div>
-
-        <!-- Звук и Музыка (Audio & Music) -->
-        <div>
-          <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#ff6b35; margin-bottom:8px;" data-i18n="settings.audio">${t('settings.audio')}</div>
-
-          <!-- BGM Volume -->
-          <div style="margin-bottom:10px;">
-            <div style="font-size:11px; color:rgba(255,255,255,0.7); margin-bottom:4px;" data-i18n="settings.bgm_vol">${t('settings.bgm_vol')}</div>
-            <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:6px;" id="settings-bgm-group">
-              <button class="setting-opt-btn btn-ghost" data-group="bgmVolume" data-val="0" style="padding:8px 4px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
-                <div style="font-weight:700;" data-i18n="settings.vol.off">${t('settings.vol.off')}</div>
-              </button>
-              <button class="setting-opt-btn btn-ghost" data-group="bgmVolume" data-val="0.3" style="padding:8px 4px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
-                <div style="font-weight:700;" data-i18n="settings.vol.low">${t('settings.vol.low')}</div>
-              </button>
-              <button class="setting-opt-btn btn-ghost" data-group="bgmVolume" data-val="0.6" style="padding:8px 4px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
-                <div style="font-weight:700;" data-i18n="settings.vol.med">${t('settings.vol.med')}</div>
-              </button>
-              <button class="setting-opt-btn btn-ghost" data-group="bgmVolume" data-val="1.0" style="padding:8px 4px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
-                <div style="font-weight:700;" data-i18n="settings.vol.high">${t('settings.vol.high')}</div>
-              </button>
-            </div>
-          </div>
+          <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#ff6b35; margin-bottom:8px;" data-i18n="settings.sfx_vol">${t('settings.sfx_vol')}</div>
 
           <!-- SFX Volume -->
           <div>
@@ -440,7 +404,7 @@ export function getHUDHtml(t, i18n, state = {}) {
           </div>
         </div>
 
-        <!-- Кнопка применить -->
+        <!-- Save Button -->
         <div style="display:flex; justify-content:flex-end; gap:12px; align-items:center; margin-top:4px;">
           <button id="btn-settings-save" class="btn btn-primary" style="padding:12px 28px; font-size:14px; background:linear-gradient(135deg, #00e5ff, #0088ff); border:none;" data-i18n="settings.save">
             ${t('settings.save')}

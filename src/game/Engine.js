@@ -48,7 +48,6 @@ export class Engine {
 
     // 1. Audio, computer vision, and skin initialisation
     this.soundFx = new SoundFx();
-    this.soundFx.startBGM('menu');
     this.audioManager = new AudioManager();
     this.skinManager = new SkinManager();
     this.visionManager = new VisionManager();
@@ -56,34 +55,34 @@ export class Engine {
     // loading delay when the player first reaches a CV stage (Stage 2+)
     this.visionManager.preloadModels();
 
-    // 2. Инициализация Three.js
+    // 2. Initialize Three.js
     this._initThree();
 
-    // 3. Компоненты игры
+    // 3. Game components
     this.cameraRig = new CameraRig(this.camera);
     this.runner = new Runner(this.scene, this.soundFx);
     this.track = new Track(this.scene, this.skinManager);
     this.obstacleManager = new ObstacleManager(this.scene, this.skinManager, this.soundFx);
     this.scoreSystem = new ScoreSystem();
 
-    // 4. Плагины управления
+    // 4. Control plugins
     this._initControls();
 
-    // 5. HUD и интерфейс
+    // 5. HUD and UI
     this.hud = new HUD(this.uiRoot, this.skinManager, this.soundFx, this.visionManager);
     this._bindHUD();
     this.visionManager.onFpsUpdate = (fps, latency) => this.hud.updateCvFPS(fps, latency);
 
-    // 6. Горячие клавиши отладки
+    // 6. Debug hotkeys
     this._bindDebugShortcuts();
 
-    // 7. Подписка на смену тем и скинов
+    // 7. Subscribe to theme and skin changes
     this._bindSkinManager();
 
-    // 8. Переключение языка → перерендер HUD
+    // 8. Language switch -> HUD rerender
     i18n.onLangChange = () => this.hud.rerender();
 
-    // 9. Игровой цикл и счетчик FPS
+    // 9. Game loop and FPS counter
     this.clock = new THREE.Clock();
     this._frameCount = 0;
     this._fpsTimer = 0;
@@ -97,11 +96,11 @@ export class Engine {
     this._transitionTargetStage = null;
     this._prewarmedCam = false;
 
-    // Первоначальное применение темы
+    // Initial theme application
     this._applySceneTheme(this.skinManager.activeTheme);
     this.runner.applySkin(this.skinManager.activeCharSkin);
 
-    // Старт цикла рендера
+    // Start render loop
     this._animate();
   }
 
@@ -123,7 +122,7 @@ export class Engine {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // Освещение сцены
+    // Scene lighting
     this.ambientLight = new THREE.AmbientLight(0x334466, 1.2);
     this.scene.add(this.ambientLight);
 
@@ -140,7 +139,7 @@ export class Engine {
     this.dirLight.shadow.camera.bottom = -10;
     this.scene.add(this.dirLight);
 
-    // Туман горизонта
+    // Horizon fog
     this.scene.fog = new THREE.Fog(0x070b19, 25, 140);
   }
 
@@ -165,16 +164,30 @@ export class Engine {
     // Stage 5: HandSwipe — contactless air swipes (left, right, up, down)
     this.controlManager.register(5, new HandSwipeControl(this.visionManager));
 
-    // На touch-устройствах этап 0 заменяется на виртуальный D-pad,
-    // а этап 1 остаётся PointerControl (нативные свайпы пальцем по экрану)
+    // On touch devices Stage 0 is replaced by virtual D-pad,
+    // while Stage 1 remains PointerControl (native swipe gestures on screen)
     if (this._isTouchDevice()) {
       this._touchButtons = new TouchButtonControl();
       this.controlManager.register(0, this._touchButtons);
     }
 
     this.scoreSystem.onStageChange = (newStage) => {
-      // If debug locked, not playing, or not advancing forward, switch stage immediately without countdown
-      if (this.scoreSystem.lockedStage !== null || this.state !== GameState.PLAYING || newStage <= this.controlManager.stage) {
+      // If debug locked or not playing, switch stage immediately without countdown
+      if (this.scoreSystem.lockedStage !== null || this.state !== GameState.PLAYING) {
+        this._transitioning = false;
+        this.hud.hideTransitionCountdown();
+        this.obstacleManager.setTransitioning(false);
+        this.scoreSystem.setTransitioning(false);
+        this._applyStageSwitch(newStage);
+        return;
+      }
+
+      // Check if this is normal forward progression (e.g. 0->1) or looping back to Stage 0 (5->0)
+      const currentStage = this.controlManager.stage;
+      const isLoop = (currentStage === 5 && newStage === 0);
+      const isForward = (newStage === currentStage + 1) || isLoop;
+
+      if (!isForward) {
         this._transitioning = false;
         this.hud.hideTransitionCountdown();
         this.obstacleManager.setTransitioning(false);
@@ -196,7 +209,6 @@ export class Engine {
 
     this.scoreSystem.setTransitioning(true);
     this.obstacleManager.setTransitioning(true);
-    this.soundFx?.setBgmMode('transition');
 
     // If switching to CV stage (Stage 2..5), show camera PIP early so player can see themselves
     if (newStage >= 2) {
@@ -214,9 +226,6 @@ export class Engine {
   _applyStageSwitch(stage) {
     this.controlManager.setStage(stage);
     this.hud.announceStage(stage, this.scoreSystem.lockedStage !== null);
-    if (this.state === GameState.PLAYING) {
-      this.soundFx?.setBgmMode('game');
-    }
 
     const isCvStage = stage >= 2;
     this.hud.showCvFps(isCvStage);
@@ -226,10 +235,12 @@ export class Engine {
       }
       this.hud.showWebcamPip(true);
       this.hud.setWebcamStatus(i18n.t('hud.cam.active'));
+    } else {
+      this.hud.showWebcamPip(false);
     }
   }
 
-  /** Определяет touch-устройство */
+  /** Detect touch device */
   _isTouchDevice() {
     return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
   }
@@ -266,7 +277,6 @@ export class Engine {
 
     this.hud.onUpdateAudioSettings = (settings) => {
       if (settings.sfxVolume !== undefined) this.soundFx.setSfxVolume(settings.sfxVolume);
-      if (settings.bgmVolume !== undefined) this.soundFx.setBgmVolume(settings.bgmVolume);
       if (settings.muted !== undefined) this.soundFx.setMuted(settings.muted);
       this.hud.updateSoundState(this.soundFx.muted);
     };
@@ -295,26 +305,26 @@ export class Engine {
       }
 
       // G: God Mode
-      if (key === 'g' || key === 'G' || key === 'п' || key === 'П') {
+      if (e.code === 'KeyG' || key === 'g' || key === 'G') {
         this.toggleGodMode();
         return;
       }
 
       // L: Stage lock
-      if (key === 'l' || key === 'L' || key === 'д' || key === 'Д') {
+      if (e.code === 'KeyL' || key === 'L' || key === 'l') {
         this.toggleStageLock();
         return;
       }
 
       // F2 / ` / ~: Debug panel
-      if (key === '`' || key === '~' || key === 'ё' || key === 'Ё' || key === 'F2') {
+      if (e.code === 'Backquote' || key === '`' || key === '~' || key === 'F2') {
         e.preventDefault();
         this.hud.toggleDebugModal();
         return;
       }
 
       // M: Toggle audio mute
-      if (key === 'm' || key === 'M' || key === 'ь' || key === 'Ь') {
+      if (e.code === 'KeyM' || key === 'm' || key === 'M') {
         const isMuted = this.soundFx.toggleMute();
         this.hud.updateSoundState(isMuted);
         return;
@@ -330,7 +340,6 @@ export class Engine {
     this.scoreSystem.setTransitioning(false);
     this.scoreSystem.stop();
     this.controlManager.setStage(-1);
-    this.soundFx?.setBgmMode('menu');
     this.hud.showMenu();
   }
 
@@ -417,8 +426,6 @@ export class Engine {
     this._applyStageSwitch(stage);
 
     this.soundFx?.unlock();
-    this.soundFx?.startBGM('game');
-    this.soundFx?.setBgmMode('game');
 
     this.cameraRig.reset(this.runner.pos);
 
@@ -434,7 +441,6 @@ export class Engine {
     this.scoreSystem.setTransitioning(false);
     this.scoreSystem.stop();
     this.controlManager.setStage(-1);
-    this.soundFx?.setBgmMode('dead');
 
     this.runner.crash();
     this.cameraRig.addTrauma(0.9);

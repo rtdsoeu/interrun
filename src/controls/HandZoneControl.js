@@ -1,20 +1,20 @@
 /**
- * HandZoneControl — Этап 3: Зональное CV управление только рукой.
+ * HandZoneControl — Stage 3: Hand-only Zone CV 3×3 Grid Control.
  *
- * Концепция: та же сетка 3×3, что и в ZoneControl (Этап 2),
- * но источник — ТОЛЬКО центр ладони. Без фоллбека на лицо.
- * Если рука не видна — состояние не меняется.
+ * Concept: same 3×3 grid as ZoneControl (Stage 2),
+ * but source is STRICTLY the center of the palm. No face fallback.
+ * If hand is not visible — state is preserved.
  *
  *  ┌──────┬──────┬──────┐
- *  │  J←  │  J↑  │  J→  │  ← top: прыжок
+ *  │  J←  │  J↑  │  J→  │  ← top: jump
  *  ├──────┼──────┼──────┤
- *  │  ←   │ IDLE │  →   │  ← mid: смена полосы
+ *  │  ←   │ IDLE │  →   │  ← mid: lane change
  *  ├──────┼──────┼──────┤
- *  │  S←  │  S↓  │  S→  │  ← bot: присед
+ *  │  S←  │  S↓  │  S→  │  ← bot: duck / slide
  *  └──────┴──────┴──────┘
  *    L       C       R
  *
- * Режим Vision Worker: 'handzone'
+ * Vision Worker mode: 'handzone'
  */
 import { BaseControl } from './BaseControl.js';
 
@@ -23,10 +23,10 @@ export class HandZoneControl extends BaseControl {
     super();
     this.vision = visionManager;
 
-    /** Абсолютная целевая полоса: -1 (L), 0 (C), 1 (R) */
+    /** Absolute target lane: -1 (L), 0 (C), 1 (R) */
     this._desiredLane = 0;
 
-    /** Флаг приседа (активен пока зона bot) */
+    /** Ducking flag (active while zone is bot) */
     this._isDucking = false;
   }
 
@@ -49,13 +49,13 @@ export class HandZoneControl extends BaseControl {
 
     const { hzCol, hzRow, hzSource } = this.vision.currentState;
 
-    // Нет трекинга руки — сбрасываем присед и сохраняем текущую полосу
+    // No hand tracking — reset ducking and preserve current lane
     if (!hzSource) {
       this._isDucking = false;
       return;
     }
 
-    // 1. Абсолютное позиционирование полосы по X руки
+    // 1. Absolute lane positioning by hand X
     if (hzCol === 'L') {
       this._desiredLane = -1;
     } else if (hzCol === 'R') {
@@ -64,17 +64,17 @@ export class HandZoneControl extends BaseControl {
       this._desiredLane = 0;
     }
 
-    // 2. Абсолютный присед: пока зона bot — бежит в приседе
+    // 2. Absolute ducking: while zone is bot — runner ducks
     this._isDucking = (hzRow === 'bot');
 
-    // 3. Непрерывный прыжок: пока зона top — прыгает
+    // 3. Continuous jump: while zone is top — runner jumps
     if (hzRow === 'top') {
       this._push({ jump: true });
     }
   }
 
   /**
-   * Возвращает накопленные команды ввода, включая абсолютную полосу и удержание приседа.
+   * Return accumulated input commands including target lane and ducking hold.
    */
   consume() {
     const res = super.consume();

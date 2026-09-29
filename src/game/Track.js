@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
 /**
- * Track — бесконечная система трассы (чанки) с 3 полосами,
- * динамическими декорациями (города / каньоны / лес) и поддержкой тем.
+ * Track — endless track chunking system with 3 lanes,
+ * dynamic scenery (cities / canyons / forest), and theme support.
  */
 export class Track {
   constructor(scene, skinManager) {
@@ -10,7 +10,7 @@ export class Track {
     this.skinManager = skinManager;
 
     this.chunkLength = 30;
-    this.chunkCount = 8; // 8 * 30 = 240 единиц трассы вперед
+    this.chunkCount = 8; // 8 * 30 = 240 units of forward track
     this.laneWidth = 2.4;
     this.trackWidth = this.laneWidth * 3 + 1.2;
 
@@ -18,11 +18,11 @@ export class Track {
     this.trackGroup = new THREE.Group();
     this.scene.add(this.trackGroup);
 
-    // Материалы, перестраиваемые при смене темы
+    // Materials re-instantiated on theme change
     this._materials = {};
     this._initMaterials();
 
-    // Создаем начальные чанки
+    // Create initial chunks
     for (let i = 0; i < this.chunkCount; i++) {
       const zPos = -i * this.chunkLength + 15;
       const chunk = this._createChunk(zPos);
@@ -73,15 +73,15 @@ export class Track {
     const chunk = new THREE.Group();
     chunk.position.z = zPos;
 
-    // 1. Полотно дороги
+    // 1. Road surface
     const roadGeo = new THREE.BoxGeometry(this.trackWidth, 0.4, this.chunkLength);
     const road = new THREE.Mesh(roadGeo, this._materials.ground);
     road.position.y = -0.2;
     road.receiveShadow = true;
     chunk.add(road);
 
-    // 2. Рельсы / неоновые разделители для 3 полос
-    // 4 линии (левый край, между 1 и 2, между 2 и 3, правый край)
+    // 2. Rails / neon dividers for 3 lanes
+    // 4 lines (left edge, between 1 and 2, between 2 and 3, right edge)
     const railGeo = new THREE.BoxGeometry(0.08, 0.08, this.chunkLength);
     const laneOffsets = [
       -this.laneWidth * 1.5,
@@ -96,7 +96,7 @@ export class Track {
       chunk.add(rail);
     });
 
-    // 3. Шпалы (поперечные балки как у ж/д в Subway Surfers)
+    // 3. Sleepers (cross ties like Subway Surfers railway)
     const sleeperGeo = new THREE.BoxGeometry(this.trackWidth - 0.2, 0.05, 0.35);
     const sleeperStep = 2.5;
     const sleeperCount = Math.floor(this.chunkLength / sleeperStep);
@@ -108,7 +108,7 @@ export class Track {
       chunk.add(sleeper);
     }
 
-    // 4. Ограждения по бокам трассы
+    // 4. Side barriers
     const fenceGeo = new THREE.BoxGeometry(0.2, 0.8, this.chunkLength);
     const fenceL = new THREE.Mesh(fenceGeo, this._materials.barrier);
     fenceL.position.set(-this.trackWidth / 2 - 0.1, 0.4, 0);
@@ -119,7 +119,7 @@ export class Track {
     fenceR.position.x = this.trackWidth / 2 + 0.1;
     chunk.add(fenceR);
 
-    // 5. Боковые декорации (город / каньон / лес)
+    // 5. Side scenery (city / canyon / forest)
     const sideDecorGroup = new THREE.Group();
     sideDecorGroup.name = 'sideDecor';
     this._populateSideDecor(sideDecorGroup);
@@ -132,7 +132,7 @@ export class Track {
     const theme = this.skinManager.activeTheme;
 
     if (theme.sideType === 'buildings') {
-      // Городские небоскребы по обеим сторонам
+      // City skyscrapers on both sides
       const sideOffsets = [-12, 12];
       sideOffsets.forEach(baseX => {
         for (let i = 0; i < 3; i++) {
@@ -147,7 +147,7 @@ export class Track {
           building.castShadow = true;
           group.add(building);
 
-          // Неоновые окна на здании
+          // Neon windows on the building
           if (Math.random() > 0.3) {
             const winGeo = new THREE.BoxGeometry(w * 0.9, 0.4, d * 0.9);
             const winMat = new THREE.MeshBasicMaterial({
@@ -160,7 +160,7 @@ export class Track {
         }
       });
 
-      // Арочный светофор / информационный мост над трассой
+      // Arch traffic light / gantry overhead bridge
       if (Math.random() > 0.5) {
         const archGroup = new THREE.Group();
         const beamGeo = new THREE.BoxGeometry(this.trackWidth + 2, 0.3, 0.3);
@@ -184,7 +184,7 @@ export class Track {
         group.add(archGroup);
       }
     } else if (theme.sideType === 'canyons') {
-      // Скалистые ущелья
+      // Rocky canyons
       [-10, 10].forEach(baseX => {
         for (let i = 0; i < 3; i++) {
           const r = 3 + Math.random() * 4;
@@ -196,7 +196,7 @@ export class Track {
         }
       });
     } else if (theme.sideType === 'forest') {
-      // Неоновый лес
+      // Neon forest
       [-8, 8].forEach(baseX => {
         for (let i = 0; i < 4; i++) {
           const trunkGeo = new THREE.CylinderGeometry(0.2, 0.4, 6, 6);
@@ -226,7 +226,7 @@ export class Track {
     this._materials.rail.emissive.setHex(theme.railColor);
     this._materials.sleeper.color.setHex(theme.sleeperColor);
 
-    // Перестраиваем декорации во всех чанках
+    // Rebuild side scenery in all chunks
     this.chunks.forEach(chunk => {
       const oldDecor = chunk.getObjectByName('sideDecor');
       if (oldDecor) {
@@ -242,14 +242,14 @@ export class Track {
   update(dt, speed) {
     const totalSpan = this.chunkLength * this.chunkCount;
 
-    // Сдвигаем все чанки по направлению к камере (+Z)
+    // Move all chunks towards camera (+Z)
     for (let i = 0; i < this.chunks.length; i++) {
       const chunk = this.chunks[i];
       chunk.position.z += speed * dt;
 
-      // Если чанк проехал далеко за спину камеры — переносим его вперед
+      // If chunk travelled far behind camera, wrap it to the front
       if (chunk.position.z > 25) {
-        // Находим минимальный (самый дальний) Z
+        // Find minimum (furthest forward) Z
         let minZ = 0;
         for (let j = 0; j < this.chunks.length; j++) {
           if (this.chunks[j].position.z < minZ) {
@@ -258,7 +258,7 @@ export class Track {
         }
         chunk.position.z = minZ - this.chunkLength;
 
-        // Перегенерируем случайные боковые декорации
+        // Regenerate random side decorations
         const oldDecor = chunk.getObjectByName('sideDecor');
         if (oldDecor) chunk.remove(oldDecor);
         const newDecor = new THREE.Group();
