@@ -661,4 +661,68 @@ describe('HUD Stage Loop Display on Cycle 2+ Transitions', () => {
   });
 });
 
+describe('WakeLockManager Screen Sleep Prevention', () => {
+  it('correctly requests, tracks, and releases screen wake lock', async () => {
+    const { WakeLockManager } = await import('../src/game/WakeLockManager.js');
+
+    let released = false;
+    let releaseListeners = [];
+    const mockSentinel = {
+      released: false,
+      release: async () => {
+        mockSentinel.released = true;
+        released = true;
+        releaseListeners.forEach(fn => fn());
+      },
+      addEventListener: (type, fn) => {
+        if (type === 'release') releaseListeners.push(fn);
+      }
+    };
+
+    let requestedType = null;
+    const origWakeLock = Object.getOwnPropertyDescriptor(navigator, 'wakeLock');
+    Object.defineProperty(navigator, 'wakeLock', {
+      value: {
+        request: async (type) => {
+          requestedType = type;
+          mockSentinel.released = false;
+          released = false;
+          return mockSentinel;
+        }
+      },
+      configurable: true,
+      writable: true
+    });
+
+    try {
+      const manager = new WakeLockManager();
+      expect(manager.isSupported).toBe(true);
+      expect(manager.isHoldingLock).toBe(false);
+
+      // Request lock
+      await manager.request();
+      expect(requestedType).toBe('screen');
+      expect(manager.isHoldingLock).toBe(true);
+
+      // Release lock
+      await manager.release();
+      expect(released).toBe(true);
+      expect(manager.isHoldingLock).toBe(false);
+
+      // Gracefully handles request error
+      navigator.wakeLock.request = async () => { throw new Error('Low battery'); };
+      await manager.request();
+      expect(manager.isHoldingLock).toBe(false);
+
+      manager.destroy();
+    } finally {
+      if (origWakeLock) {
+        Object.defineProperty(navigator, 'wakeLock', origWakeLock);
+      } else {
+        delete navigator.wakeLock;
+      }
+    }
+  });
+});
+
 

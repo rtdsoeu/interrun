@@ -17,6 +17,7 @@ import { SkinManager } from '../skins/SkinManager.js';
 import { SoundFx } from '../audio/SoundFx.js';
 import { HUD } from '../ui/HUD.js';
 import { i18n } from '../i18n/i18n.js';
+import { WakeLockManager } from './WakeLockManager.js';
 
 export const GameState = {
   MENU: 'menu',
@@ -105,6 +106,9 @@ export class Engine {
     this._transitionDuration = 3.5;
     this._transitionTargetStage = null;
     this._prewarmedCam = false;
+
+    // 11. Screen Wake Lock (prevents mobile screen sleep during CV stages)
+    this.wakeLock = new WakeLockManager();
 
     // Initial theme application
     this._applySceneTheme(this.skinManager.activeTheme);
@@ -247,6 +251,7 @@ export class Engine {
     const isCvStage = stage >= 2;
     this.hud.showCvFps(isCvStage);
     if (isCvStage) {
+      this.wakeLock?.request();
       if (!this.visionManager.isReady) {
         this.visionManager.initWebcam(this.hud.elWebcamCanvas);
       }
@@ -368,6 +373,7 @@ export class Engine {
 
   goToMenu() {
     this.state = GameState.MENU;
+    this.wakeLock?.release();
     this._transitioning = false;
     this.hud.hideTransitionCountdown();
     this.obstacleManager.setTransitioning(false);
@@ -509,12 +515,14 @@ export class Engine {
 
     this.cameraRig.reset(this.runner.pos);
 
+    this.wakeLock?.request();
     this.state = GameState.PLAYING;
     this.hud.showGame();
   }
 
   gameOver() {
     this.state = GameState.DEAD;
+    this.wakeLock?.release();
     this._transitioning = false;
     this.hud.hideTransitionCountdown();
     this.obstacleManager.setTransitioning(false);
