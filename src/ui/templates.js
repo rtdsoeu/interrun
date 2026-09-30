@@ -100,7 +100,7 @@ export function getHUDHtml(t, i18n, state = {}) {
           <span class="hud-fps-label">FPS</span>
           <span id="hud-cv-ms" class="hud-cv-ms"></span>
           <span id="hud-cam-lowlight-badge" class="hidden" style="font-size:9px; font-weight:800; background:rgba(255,215,0,0.18); color:#ffd700; border:1px solid rgba(255,215,0,0.5); border-radius:4px; padding:1px 5px; margin-left:3px; text-transform:uppercase; letter-spacing:0.5px; display:inline-flex; align-items:center; gap:2px;" title="${t('hud.cam.lowlight')}">
-            <span>💡</span><span data-i18n="hud.cam.lowlight_badge">${t('hud.cam.lowlight_badge')}</span>
+            <span>⚡</span><span data-i18n="hud.cam.lowlight_badge">${t('hud.cam.lowlight_badge')}</span>
           </span>
         </div>
       </div>

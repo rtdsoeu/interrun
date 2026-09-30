@@ -96,8 +96,8 @@ export const translations = {
   'hud.immortal':      { en: '🛡️ GOD MODE (♾️)',      uk: '🛡️ БЕЗСМЕРТЯ (♾️)' },
   'hud.cam.active':          { en: 'CAMERA: ACTIVE',        uk: 'КАМЕРА: АКТИВНА' },
   'hud.cam.loading_models':  { en: 'LOADING AI MODELS...',  uk: 'ЗАВАНТАЖЕННЯ AI МОДЕЛЕЙ...' },
-  'hud.cam.lowlight':        { en: 'Low light: adaptive tracking active', uk: 'Слабке світло: адаптивний трекінг активний' },
-  'hud.cam.lowlight_badge':  { en: 'LOW LIGHT',             uk: 'СЛАБКЕ СВІТЛО' },
+  'hud.cam.lowlight':        { en: 'Low FPS: adaptive eco-tracking active', uk: 'Низький FPS: адаптивний еко-трекінг активний' },
+  'hud.cam.lowlight_badge':  { en: 'ECO MODE',              uk: 'ЕКО РЕЖИМ' },
   'hud.cam.offline_fallback':{ en: 'CAM OFFLINE — SWIPES ACTIVE',        uk: 'КАМЕРА ОФЛАЙН — СВАЙПИ АКТИВНІ' },
   'hud.sound':         { en: 'SOUND',                 uk: 'ЗВУК' },
 

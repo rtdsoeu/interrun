@@ -710,7 +710,7 @@ export class HUD {
     if (this.elCamFps && camFps && camFps !== this._lastCamFps) {
       this._lastCamFps = camFps;
       const isLowLight = camFps < 18;
-      this.elCamFps.textContent = isLowLight ? `📹${camFps} 💡` : `📹${camFps}`;
+      this.elCamFps.textContent = isLowLight ? `📹${camFps} ⚡` : `📹${camFps}`;
       this.elCamFps.style.color = isLowLight ? '#ffd700' : 'rgba(255,255,255,0.65)';
       this.elCamFps.title = isLowLight ? i18n.t('hud.cam.lowlight') : 'Camera FPS';
       if (this.elLowLightBadge) {
