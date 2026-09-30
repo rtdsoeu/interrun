@@ -155,12 +155,12 @@ export function getHUDHtml(t, i18n, state = {}) {
       </div>
 
       <div class="menu-stages">
-        <div class="stage-chip active">0: ${t('stage.0.name')}</div>
-        <div class="stage-chip">1: ${t('stage.1.name')}</div>
-        <div class="stage-chip" style="border-color:rgba(108,99,255,0.5); color:#a89cff;">2: ${t('stage.2.name')} 🎯</div>
-        <div class="stage-chip" style="border-color:rgba(0,255,136,0.5); color:#00ff88;">3: ${t('stage.3.name')} ✋</div>
-        <div class="stage-chip" style="border-color:rgba(255,107,53,0.5); color:#ff6b35;">4: ${t('stage.4.name')} ✌️</div>
-        <div class="stage-chip" style="border-color:rgba(255,215,0,0.5); color:#ffd700;">5: ${t('stage.5.name')} 👋</div>
+        <div class="stage-chip active" data-stage="0" style="cursor:pointer;" title="Launch Stage 0">0: ${t('stage.0.name')}</div>
+        <div class="stage-chip" data-stage="1" style="cursor:pointer;" title="Launch Stage 1">1: ${t('stage.1.name')}</div>
+        <div class="stage-chip" data-stage="2" style="border-color:rgba(108,99,255,0.5); color:#a89cff; cursor:pointer;" title="Launch Stage 2">2: ${t('stage.2.name')} 🎯</div>
+        <div class="stage-chip" data-stage="3" style="border-color:rgba(0,255,136,0.5); color:#00ff88; cursor:pointer;" title="Launch Stage 3">3: ${t('stage.3.name')} ✋</div>
+        <div class="stage-chip" data-stage="4" style="border-color:rgba(255,107,53,0.5); color:#ff6b35; cursor:pointer;" title="Launch Stage 4">4: ${t('stage.4.name')} ✌️</div>
+        <div class="stage-chip" data-stage="5" style="border-color:rgba(255,215,0,0.5); color:#ffd700; cursor:pointer;" title="Launch Stage 5">5: ${t('stage.5.name')} 👋</div>
       </div>
     </div>
 

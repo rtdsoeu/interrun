@@ -337,9 +337,26 @@ export class Engine {
         return;
       }
 
-      // Keys 0-5: instant stage select & lock
+      // Space or Enter: Start game from Menu or Restart from Dead screen
+      if (e.code === 'Space' || e.code === 'Enter') {
+        if (!this.hud.isAnyModalOpen()) {
+          if (this.state === GameState.MENU || this.state === GameState.DEAD) {
+            e.preventDefault();
+            this.startGame(0, false, this.godMode);
+            return;
+          }
+        }
+      }
+
+      // Keys 0-5: instant stage select & launch (from Menu / Dead) or live switch (during Play)
       if (key >= '0' && key <= '5') {
-        this.setDebugStage(parseInt(key, 10), true);
+        const stageNum = parseInt(key, 10);
+        this.hud.closeAllModals();
+        if (this.state === GameState.MENU || this.state === GameState.DEAD) {
+          this.startGame(stageNum, true, this.godMode);
+        } else {
+          this.setDebugStage(stageNum, true);
+        }
         return;
       }
 
@@ -387,6 +404,12 @@ export class Engine {
   setDebugStage(stageNum, lock = true, speedMultiplier = null) {
     if (stageNum < 0 || stageNum > 5) return;
 
+    if (this.state === GameState.MENU || this.state === GameState.DEAD) {
+      this.hud.closeAllModals();
+      this.startGame(stageNum, lock, this.godMode, speedMultiplier || this.scoreSystem.speedMultiplier);
+      return;
+    }
+
     this._transitioning = false;
     this.hud.hideTransitionCountdown();
     this.obstacleManager.setTransitioning(false);
@@ -409,10 +432,13 @@ export class Engine {
   toggleGodMode() {
     this.godMode = !this.godMode;
     console.log(`[InterRun] God Mode: ${this.godMode ? 'ON' : 'OFF'}`);
+    if (this.hud?.elOptGod) this.hud.elOptGod.checked = this.godMode;
+    this.hud.updateHUD(this.scoreSystem.distance, this.scoreSystem.speedNorm, this.coins, this.lives, this.godMode, this.scoreSystem.lockedStage !== null);
   }
 
   toggleStageLock() {
     const isLocked = this.scoreSystem.toggleLock();
+    if (this.hud?.elOptLock) this.hud.elOptLock.checked = isLocked;
     this.hud.announceStage(this.scoreSystem.stage, isLocked, this.scoreSystem.cycle);
   }
 

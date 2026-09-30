@@ -228,6 +228,16 @@ export class HUD {
       if (this.onStartGame) this.onStartGame(0, false, false);
     });
 
+    // Menu stage chips: click to directly launch stage
+    document.querySelectorAll('.menu-stages .stage-chip').forEach(chip => {
+      bindFastTap(chip, () => {
+        const stage = parseInt(chip.getAttribute('data-stage') || '0', 10);
+        this.soundFx?.init();
+        if (this.onStartDebug) this.onStartDebug(stage, true, this._isGodMode, 1.0);
+        else if (this.onStartGame) this.onStartGame(stage, true, false);
+      });
+    });
+
     // Restart game
     bindFastTap('btn-restart', () => {
       if (this.onRestartGame) this.onRestartGame();
