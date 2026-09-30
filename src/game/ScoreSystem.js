@@ -5,26 +5,26 @@
  * - Cyclic 6-stage progression (Stages 0..5, then loops back to Stage 0 with higher speed).
  *
  * Stages:
- *   0 (   0–100m): Keyboard / Touch D-pad
- *   1 ( 100–250m): Touch swipes / Mouse
- *   2 ( 250–500m): Zone CV (hand priority, face fallback) — 3×3 grid
- *   3 ( 500–750m): HandZone (3×3 grid, hand only)
- *   4 ( 750–1050m): FingerGesture (1/2/3 fingers for lane, palm=jump, fist=duck)
- *   5 (1050–1350m): HandSwipe (contactless air swipes left/right/up/down)
- *   -> loops back to Stage 0 (1350m+) with increased speed per cycle!
+ *   0 (   0– 300m): Keyboard / Touch D-pad (extended for 8-10 obstacle rows)
+ *   1 ( 300– 650m): Touch swipes / Mouse (extended for 10-12 obstacle rows)
+ *   2 ( 650– 950m): Zone CV (Face 3×3 grid)
+ *   3 ( 950–1250m): HandZone (Hand 3×3 grid, hand only)
+ *   4 (1250–1850m): FingerGesture (1/2/3 fingers for lane, palm=jump, fist=duck) — 600m
+ *   5 (1850–2250m): HandSwipe (contactless air swipes left/right/up/down) — 400m
+ *   -> loops back to Stage 0 (2250m+) with increased speed per cycle!
  */
 export const STAGE_BASE_SPEEDS = [
-  11.0, // Stage 0: Keyboard
-  12.0, // Stage 1: Pointer / Touch
-  10.0, // Stage 2: Zone CV (relaxed speed for 3x3 positioning)
-  11.5, // Stage 3: HandZone
-  10.5, // Stage 4: FingerGesture (relaxed for finger recognition)
-  12.0  // Stage 5: HandSwipe (air swipes)
+  12.0, // Stage 0: Keyboard / Touch D-pad
+  12.2, // Stage 1: Pointer / Touch Swipes
+  12.2, // Stage 2: Zone CV (Face 3×3 grid) — consistent with Stage 1, no slowdown dip
+  12.4, // Stage 3: HandZone (Hand 3×3 grid)
+  12.4, // Stage 4: FingerGesture (1/2/3 fingers, palm, fist)
+  12.8  // Stage 5: HandSwipe (contactless air swipes)
 ];
 
-export const STAGE_THRESHOLDS = [0, 100, 250, 500, 750, 1050];
-export const STAGE_CYCLE_LENGTH = 1350; // Total meters per full 6-stage loop (Stage 5 runs 1050–1350m)
-export const CYCLE_SPEED_INCREMENT = 1.5; // +1.5 m/s added to all stage speeds each time we loop back to Stage 0
+export const STAGE_THRESHOLDS = [0, 300, 650, 950, 1250, 1850];
+export const STAGE_CYCLE_LENGTH = 2250; // Total meters per full 6-stage loop (Stage 0: 300m, Stage 1: 350m, Stage 2: 300m, Stage 3: 300m, Stage 4: 600m, Stage 5: 400m)
+export const CYCLE_SPEED_INCREMENT = 2.0; // +2.0 m/s added to all stage speeds each time we loop back to Stage 0
 
 export class ScoreSystem {
   constructor() {
@@ -40,7 +40,7 @@ export class ScoreSystem {
     this.STAGE_BASE_SPEEDS    = STAGE_BASE_SPEEDS;
     this.STAGE_CYCLE_LENGTH   = STAGE_CYCLE_LENGTH;
     this.CYCLE_SPEED_INCREMENT = CYCLE_SPEED_INCREMENT;
-    this.TRANSITION_SPEED     = 9.0;
+    this.TRANSITION_SPEED     = 10.5;
     this.speedMultiplier      = 1.0;
     this.isTransitioning      = false;
     this.speed                = this.STAGE_BASE_SPEEDS[0];
@@ -64,7 +64,7 @@ export class ScoreSystem {
   setSpeedMultiplier(multiplier = 1.0) {
     this.speedMultiplier = Math.max(0.2, Math.min(3.0, multiplier));
     if (this._alive && this.speed) {
-      const base = (this.STAGE_BASE_SPEEDS[this.stage] ?? 11.0) + this.cycle * this.CYCLE_SPEED_INCREMENT;
+      const base = (this.STAGE_BASE_SPEEDS[this.stage] ?? 12.0) + this.cycle * this.CYCLE_SPEED_INCREMENT;
       this.speed = base * this.speedMultiplier;
     }
   }
@@ -75,7 +75,7 @@ export class ScoreSystem {
     this.stage           = validStage;
     this.speedMultiplier = speedMultiplier || 1.0;
     const cycleBonus     = this.cycle * this.CYCLE_SPEED_INCREMENT;
-    this.speed           = ((this.STAGE_BASE_SPEEDS[validStage] || 11.0) + cycleBonus) * this.speedMultiplier;
+    this.speed           = ((this.STAGE_BASE_SPEEDS[validStage] || 12.0) + cycleBonus) * this.speedMultiplier;
     this.isTransitioning = false;
     this.lockedStage     = isLocked ? validStage : null;
     this._alive          = true;
@@ -122,15 +122,15 @@ export class ScoreSystem {
     // Target speed logic: tailored per-stage base speed + loop speed increment, slowdown during transition
     const cycle = this.cycle;
     const cycleSpeedBonus = cycle * this.CYCLE_SPEED_INCREMENT;
-    const baseSpeed = this.STAGE_BASE_SPEEDS[this.stage] ?? 11.0;
+    const baseSpeed = this.STAGE_BASE_SPEEDS[this.stage] ?? 12.0;
     let targetSpeed = (baseSpeed + cycleSpeedBonus) * this.speedMultiplier;
 
     if (this.isTransitioning) {
-      targetSpeed = (this.TRANSITION_SPEED + cycle * 0.8) * this.speedMultiplier;
+      targetSpeed = (this.TRANSITION_SPEED + cycle * this.CYCLE_SPEED_INCREMENT) * this.speedMultiplier;
     }
 
-    // Smooth speed interpolation (dt * 2.5 ease)
-    this.speed += (targetSpeed - this.speed) * Math.min(1, dt * 2.5);
+    // Smooth speed interpolation (dt * 3.0 ease)
+    this.speed += (targetSpeed - this.speed) * Math.min(1, dt * 3.0);
     this.distance += this.speed * dt;
 
     // Stage progression (if not locked)

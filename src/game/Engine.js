@@ -240,7 +240,7 @@ export class Engine {
     // finishes during the safe runway, before obstacles resume.
     this._applyStageSwitch(newStage);
 
-    this.hud.showTransitionCountdown(newStage, this._transitionDuration, this._transitionTimer);
+    this.hud.showTransitionCountdown(newStage, this._transitionDuration, this._transitionTimer, this.scoreSystem.cycle);
   }
 
   _applyStageSwitch(stage) {
@@ -259,7 +259,7 @@ export class Engine {
     }
 
     this.controlManager.setStage(stage);
-    this.hud.announceStage(stage, this.scoreSystem.lockedStage !== null);
+    this.hud.announceStage(stage, this.scoreSystem.lockedStage !== null, this.scoreSystem.cycle);
   }
 
   /** Detect touch device */
@@ -407,7 +407,7 @@ export class Engine {
 
   toggleStageLock() {
     const isLocked = this.scoreSystem.toggleLock();
-    this.hud.announceStage(this.scoreSystem.stage, isLocked);
+    this.hud.announceStage(this.scoreSystem.stage, isLocked, this.scoreSystem.cycle);
   }
 
   _bindSkinManager() {
@@ -569,8 +569,8 @@ export class Engine {
     }
 
     if (this.state === GameState.PLAYING) {
-      // Early background camera pre-warm as soon as player reaches Stage 1 (100m)
-      if (!this._prewarmedCam && this.scoreSystem.distance >= 100) {
+      // Early background camera pre-warm as soon as player reaches Stage 1 (Mouse/Pointer stage)
+      if (!this._prewarmedCam && (this.scoreSystem.stage >= 1 || this.scoreSystem.distance >= 300)) {
         this._prewarmedCam = true;
         if (!this.visionManager.isReady) {
           this.visionManager.initWebcam(this.hud.elWebcamCanvas);

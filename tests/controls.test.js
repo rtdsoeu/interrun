@@ -26,48 +26,54 @@ describe('ScoreSystem (6 Stages: 0 to 5)', () => {
 
   it('initializes with correct constants and thresholds', () => {
     expect(scoreSystem.MAX_STAGE).toBe(5);
-    expect(scoreSystem.STAGE_THRESHOLDS).toEqual([0, 100, 250, 500, 750, 1050]);
+    expect(scoreSystem.STAGE_THRESHOLDS).toEqual([0, 300, 650, 950, 1250, 1850]);
+    expect(scoreSystem.STAGE_CYCLE_LENGTH).toBe(2250);
     expect(scoreSystem.stage).toBe(0);
   });
 
   it('progresses through stages as distance increases', () => {
     scoreSystem.start(0, false);
 
-    // Distance 0 -> Stage 0
+    // Distance 0 -> Stage 0 (Keyboard, extended 0-300m)
     expect(scoreSystem.stage).toBe(0);
 
-    // Update distance to 105m -> Stage 1
-    scoreSystem.distance = 105;
+    // Update distance to 310m -> Stage 1 (Pointer / Mouse, extended 300-650m)
+    scoreSystem.distance = 310;
     scoreSystem.update(0.1);
     expect(scoreSystem.stage).toBe(1);
 
-    // Update distance to 260m -> Stage 2
-    scoreSystem.distance = 260;
+    // Update distance to 660m -> Stage 2 (Face Zone 3x3, 650-950m)
+    scoreSystem.distance = 660;
     scoreSystem.update(0.1);
     expect(scoreSystem.stage).toBe(2);
 
-    // Update distance to 510m -> Stage 3
-    scoreSystem.distance = 510;
+    // Update distance to 960m -> Stage 3 (HandZone 3x3, 950-1250m)
+    scoreSystem.distance = 960;
     scoreSystem.update(0.1);
     expect(scoreSystem.stage).toBe(3);
 
-    // Update distance to 760m -> Stage 4
-    scoreSystem.distance = 760;
+    // Update distance to 1300m -> Stage 4 (FingerGesture, 1250-1850m)
+    scoreSystem.distance = 1300;
     scoreSystem.update(0.1);
     expect(scoreSystem.stage).toBe(4);
 
-    // Update distance to 1100m -> Stage 5
-    scoreSystem.distance = 1100;
+    // At 1600m -> still Stage 4 (600m length)
+    scoreSystem.distance = 1600;
+    scoreSystem.update(0.1);
+    expect(scoreSystem.stage).toBe(4);
+
+    // Update distance to 1900m -> Stage 5 (HandSwipe, 1850-2250m)
+    scoreSystem.distance = 1900;
     scoreSystem.update(0.1);
     expect(scoreSystem.stage).toBe(5);
     expect(scoreSystem.cycle).toBe(0);
 
-    // At 1360m (completing 1350m cycle): loops back to Stage 0 (Keyboard) with higher speed
-    scoreSystem.distance = 1360;
+    // At 2260m (completing 2250m cycle): loops back to Stage 0 (Keyboard) with higher speed
+    scoreSystem.distance = 2260;
     scoreSystem.update(0.1);
     expect(scoreSystem.stage).toBe(0);
     expect(scoreSystem.cycle).toBe(1);
-    // Speed on cycle 1 target is 11.0 + 1.5 = 12.5 (higher than cycle 0's 11.0)
+    // Speed on cycle 1 target is 12.0 + 2.0 = 14.0 (higher than cycle 0's 12.0)
     scoreSystem.update(1.0); // allow speed to interpolate
     expect(scoreSystem.speed).toBeGreaterThan(12.0);
   });
@@ -87,7 +93,7 @@ describe('ScoreSystem (6 Stages: 0 to 5)', () => {
     // Starting at Stage 2 without lock
     scoreSystem.start(2, false);
     expect(scoreSystem.stage).toBe(2);
-    expect(scoreSystem.distance).toBe(scoreSystem.STAGE_THRESHOLDS[2]); // 250m
+    expect(scoreSystem.distance).toBe(scoreSystem.STAGE_THRESHOLDS[2]); // 650m
 
     // Next frame update should NOT revert to stage 0
     scoreSystem.update(0.016);
@@ -96,7 +102,7 @@ describe('ScoreSystem (6 Stages: 0 to 5)', () => {
     // Starting at Stage 4 with lock
     scoreSystem.start(4, true);
     expect(scoreSystem.stage).toBe(4);
-    expect(scoreSystem.distance).toBe(scoreSystem.STAGE_THRESHOLDS[4]); // 750m
+    expect(scoreSystem.distance).toBe(scoreSystem.STAGE_THRESHOLDS[4]); // 1250m
     expect(scoreSystem.lockedStage).toBe(4);
   });
 
@@ -106,12 +112,12 @@ describe('ScoreSystem (6 Stages: 0 to 5)', () => {
     expect(scoreSystem.STAGE_BASE_SPEEDS.length).toBe(6);
 
     // Initial stage 0 speed
-    expect(scoreSystem.speed).toBeCloseTo(11.0, 1);
+    expect(scoreSystem.speed).toBeCloseTo(12.0, 1);
 
     // Transition slowdown
     scoreSystem.setTransitioning(true);
     scoreSystem.update(0.5);
-    expect(scoreSystem.speed).toBeLessThan(11.0); // decelerating towards 9.0
+    expect(scoreSystem.speed).toBeLessThan(12.0); // decelerating towards 10.5
 
     scoreSystem.setTransitioning(false);
   });
@@ -119,35 +125,61 @@ describe('ScoreSystem (6 Stages: 0 to 5)', () => {
   it('applies cyclic speed increment when looping back to Stage 0 and avoids Stage 5 endless acceleration', () => {
     scoreSystem.start(0, false);
 
-    // Stage 5 at 1200m (cycle 0)
-    scoreSystem.distance = 1200;
+    // Stage 5 at 2000m (cycle 0)
+    scoreSystem.distance = 2000;
     scoreSystem.update(0.1);
     expect(scoreSystem.stage).toBe(5);
     expect(scoreSystem.cycle).toBe(0);
 
-    // Target speed for stage 5 in cycle 0 is base 12.0
+    // Target speed for stage 5 in cycle 0 is base 12.8
     scoreSystem.update(2.0);
-    expect(scoreSystem.speed).toBeCloseTo(12.0, 0.5);
+    expect(scoreSystem.speed).toBeCloseTo(12.8, 0.5);
 
-    // Crossing 1350m -> cycle 1, Stage 0 (Keyboard)
-    scoreSystem.distance = 1355;
+    // Crossing 2250m -> cycle 1, Stage 0 (Keyboard)
+    scoreSystem.distance = 2255;
     scoreSystem.update(0.1);
     expect(scoreSystem.stage).toBe(0);
     expect(scoreSystem.cycle).toBe(1);
 
-    // Target speed for stage 0 in cycle 1 is 11.0 + 1.5 = 12.5
+    // Target speed for stage 0 in cycle 1 is 12.0 + 2.0 = 14.0 (higher than cycle 0 stage 5!)
     scoreSystem.update(2.0);
-    expect(scoreSystem.speed).toBeCloseTo(12.5, 0.5);
+    expect(scoreSystem.speed).toBeCloseTo(14.0, 0.5);
 
-    // Crossing 2700m -> cycle 2, Stage 0 (Keyboard)
-    scoreSystem.distance = 2705;
+    // Advance to Stage 2 (Face Zone) in cycle 1: 2250 + 660 = 2910m
+    scoreSystem.distance = 2910;
+    scoreSystem.update(0.1);
+    expect(scoreSystem.stage).toBe(2);
+    expect(scoreSystem.cycle).toBe(1);
+    scoreSystem.update(2.0);
+    // Target speed for Stage 2 in cycle 1 is 12.2 + 2.0 = 14.2 (clearly boosted, no dip!)
+    expect(scoreSystem.speed).toBeCloseTo(14.2, 0.5);
+
+    // Advance to Stage 3 (HandZone) in cycle 1: 2250 + 960 = 3210m
+    scoreSystem.distance = 3210;
+    scoreSystem.update(0.1);
+    expect(scoreSystem.stage).toBe(3);
+    expect(scoreSystem.cycle).toBe(1);
+    scoreSystem.update(2.0);
+    // Target speed for Stage 3 in cycle 1 is 12.4 + 2.0 = 14.4 (clearly boosted!)
+    expect(scoreSystem.speed).toBeCloseTo(14.4, 0.5);
+
+    // Advance to Stage 4 (FingerGesture) in cycle 1: 2250 + 1300 = 3550m
+    scoreSystem.distance = 3550;
+    scoreSystem.update(0.1);
+    expect(scoreSystem.stage).toBe(4);
+    expect(scoreSystem.cycle).toBe(1);
+    scoreSystem.update(2.0);
+    expect(scoreSystem.speed).toBeCloseTo(14.4, 0.5);
+
+    // Crossing 4500m -> cycle 2, Stage 0 (Keyboard)
+    scoreSystem.distance = 4505;
     scoreSystem.update(0.1);
     expect(scoreSystem.stage).toBe(0);
     expect(scoreSystem.cycle).toBe(2);
 
-    // Target speed for stage 0 in cycle 2 is 11.0 + 3.0 = 14.0
+    // Target speed for stage 0 in cycle 2 is 12.0 + 4.0 = 16.0
     scoreSystem.update(2.0);
-    expect(scoreSystem.speed).toBeCloseTo(14.0, 0.5);
+    expect(scoreSystem.speed).toBeCloseTo(16.0, 0.5);
   });
 });
 
@@ -592,6 +624,40 @@ describe('VisionManager Low FPS Auto-Calibration', () => {
     expect(vm.realCamFps).toBeLessThanOrEqual(15);
     expect(vm.settings.targetFps).toBeLessThanOrEqual(15);
     expect(vm.settings.resolution).toBe('eco');
+  });
+});
+
+describe('HUD Stage Loop Display on Cycle 2+ Transitions', () => {
+  it('correctly includes loop counter for Stage 0 (Keyboard) when looping to cycle 1+', async () => {
+    const { HUD } = await import('../src/ui/HUD.js');
+    const root = { innerHTML: '' };
+    const elements = {};
+    const mockDoc = {
+      getElementById: (id) => elements[id] || (elements[id] = {
+        textContent: '',
+        innerHTML: '',
+        style: {},
+        classList: { add: () => {}, remove: () => {}, contains: () => false, toggle: () => {} },
+        addEventListener: () => {}
+      }),
+      querySelectorAll: () => []
+    };
+    const origDoc = globalThis.document;
+    globalThis.document = mockDoc;
+    try {
+      const hud = new HUD(root, null, null, null);
+      // Announce stage 0 on cycle 1 (Kolo 2 / Loop 2)
+      hud.announceStage(0, false, 1);
+      expect(hud.elStageBadge.textContent).toMatch(/(Loop|Коло|Круг)\s*2/);
+      expect(hud.elStageTitle.textContent).toMatch(/(Loop|Коло|Круг)\s*2/);
+
+      // Transition countdown banner for stage 0 on cycle 1
+      hud.showTransitionCountdown(0, 3.5, 3.5, 1);
+      const nextBadge = mockDoc.getElementById('transition-next-badge');
+      expect(nextBadge.textContent).toMatch(/(Loop|Коло|Круг)\s*2/);
+    } finally {
+      globalThis.document = origDoc;
+    }
   });
 });
 

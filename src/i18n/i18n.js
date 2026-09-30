@@ -14,8 +14,8 @@ const SUPPORTED = ['en', 'uk'];
 
 class I18n {
   constructor() {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    const browser = navigator.language?.slice(0, 2).toLowerCase();
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+    const browser = typeof navigator !== 'undefined' ? navigator.language?.slice(0, 2).toLowerCase() : 'en';
 
     if (saved && SUPPORTED.includes(saved)) {
       this._lang = saved;
@@ -42,7 +42,9 @@ class I18n {
   setLang(lang) {
     if (!SUPPORTED.includes(lang)) return;
     this._lang = lang;
-    localStorage.setItem(STORAGE_KEY, lang);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, lang);
+    }
     if (this.onLangChange) this.onLangChange(lang);
   }
 

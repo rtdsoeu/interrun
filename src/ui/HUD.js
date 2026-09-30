@@ -10,6 +10,7 @@
  */
 import { i18n } from '../i18n/i18n.js';
 import { getHUDHtml } from './templates.js';
+import { STAGE_CYCLE_LENGTH } from '../game/ScoreSystem.js';
 
 export class HUD {
   constructor(rootElement, skinManager, soundFx, visionManager = null) {
@@ -101,6 +102,13 @@ export class HUD {
 
     this._updateActiveButtons();
     this._updateSettingsButtons();
+
+    if (this._lastStageNumber !== undefined) {
+      this.announceStage(this._lastStageNumber, this._lastIsLocked, this._lastCycle);
+      const announce = document.getElementById('stage-announce');
+      announce?.classList.remove('show');
+      this.elStageTransition?.classList.remove('flash');
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -700,7 +708,7 @@ export class HUD {
     return this._t(`transition.hint.${stageNumber}`);
   }
 
-  announceStage(stageNumber, isLocked = false) {
+  announceStage(stageNumber, isLocked = false, cycle = null) {
     this._selectedDebugStage = stageNumber;
     this._updateDebugStageButtons();
 
@@ -716,13 +724,17 @@ export class HUD {
     const info = stages[stageNumber] ?? stages[0];
     const lockSuffix = isLocked ? ' 🔒' : '';
     const currentDist = (this.elDist ? parseInt(this.elDist.textContent || '0', 10) : 0);
-    const cycle = Math.floor(currentDist / 1350);
-    const loopSuffix = cycle > 0 ? ` [${this._t('stage.loop')} ${cycle + 1}]` : '';
+    const effectiveCycle = (cycle !== null && cycle !== undefined) ? cycle : Math.floor(currentDist / STAGE_CYCLE_LENGTH);
+    const loopSuffix = effectiveCycle > 0 ? ` [${this._t('stage.loop')} ${effectiveCycle + 1}]` : '';
+
+    this._lastStageNumber = stageNumber;
+    this._lastIsLocked = isLocked;
+    this._lastCycle = effectiveCycle;
 
     if (this.elStageBadge)  this.elStageBadge.textContent  = info.badge + loopSuffix + lockSuffix;
     if (this.elControlHint) this.elControlHint.innerHTML    = info.hint;
 
-    const shouldAnnounce = stageNumber > 0 || currentDist > 50;
+    const shouldAnnounce = stageNumber > 0 || currentDist > 50 || effectiveCycle > 0;
     if (shouldAnnounce) {
       if (this.elStageTitle) this.elStageTitle.textContent = info.title + loopSuffix + lockSuffix;
       if (this.elStageDesc)  this.elStageDesc.textContent  = info.desc;
@@ -740,7 +752,7 @@ export class HUD {
     }
   }
 
-  showTransitionCountdown(stageNumber, totalDuration, remainingSec) {
+  showTransitionCountdown(stageNumber, totalDuration, remainingSec, cycle = 0) {
     const banner = document.getElementById('stage-countdown-banner');
     if (!banner) return;
 
@@ -765,7 +777,8 @@ export class HUD {
     const badge = document.getElementById('transition-next-badge');
     const hint = document.getElementById('transition-next-hint');
 
-    if (badge) badge.textContent = stageNames[stageNumber] || `STAGE ${stageNumber}`;
+    const loopSuffix = cycle > 0 ? ` [${this._t('stage.loop')} ${cycle + 1}]` : '';
+    if (badge) badge.textContent = (stageNames[stageNumber] || `STAGE ${stageNumber}`) + loopSuffix;
     if (hint) hint.innerHTML = stageHints[stageNumber] || '';
 
     banner.classList.remove('hidden');
