@@ -4,6 +4,10 @@
  */
 export const translations = {
 
+  // ─── META / SEO ─────────────────────────────────────────────────────────────
+  'meta.title':        { en: 'InterRun — Multimodal Endless Runner', uk: 'InterRun — Мультимодальний 3D раннер' },
+  'meta.description':  { en: 'Endless runner with progressive control stages: keyboard, touch/mouse, face tracking, and hand gestures.', uk: '3D раннер з прогресивним керуванням: клавіатура, свайпи, трекінг обличчя та жести рук.' },
+
   // ─── MENU ───────────────────────────────────────────────────────────────────
   'menu.title':        { en: 'INTERRUN',              uk: 'INTERRUN' },
   'menu.subtitle':     { en: 'Multimodal Endless Runner', uk: 'Мультимодальний раннер' },
