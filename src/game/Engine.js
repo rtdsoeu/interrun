@@ -349,6 +349,12 @@ export class Engine {
       const pip = this.hud.elWebcamPip;
       const isHidden = !pip || pip.classList.contains('hidden');
       this.hud.showWebcamPip(isHidden);
+      // If user toggles camera on Stage 0/1 to preview, activate zone tracking so grid and face detection are visible
+      if (isHidden && !this.visionManager.activeMode && this.scoreSystem.stage < 2) {
+        this.visionManager.setMode('zone');
+      } else if (!isHidden && this.scoreSystem.stage < 2 && this.visionManager.activeMode === 'zone') {
+        this.visionManager.setMode(null);
+      }
       // Keep CV FPS visible on CV stages (Stage 2-5) even if the preview window is closed
       const isCvStage = this.scoreSystem.stage >= 2;
       this.hud.showCvFps(isCvStage);

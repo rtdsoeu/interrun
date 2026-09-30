@@ -18,6 +18,31 @@ function updateManifest() {
   return files;
 }
 
+function createMediaPipePatchPlugin() {
+  return {
+    name: 'patch-mediapipe-worker-ios',
+    enforce: 'pre',
+    transform(code, id) {
+      if (id.includes('@mediapipe') || id.includes('vision_bundle')) {
+        let patched = code.replace(/\/\/# sourceMappingURL=.*/g, '');
+        // 1. Bypass MediaPipe's broken Safari version check that causes fallback to document.createElement("canvas") in workers
+        const safariCheck = '!function(t=navigator){return(t=t.userAgent).includes("Safari")&&!t.includes("Chrome")}(t)||!!((t=t.userAgent.match(/Version\\/([\\d]+).*Safari/))&&t.length>=1&&Number(t[1])>=17)';
+        patched = patched.replace(safariCheck, 'true');
+
+        // 2. Prevent $h loader from attempting document.createElement("script") inside Web Worker scope
+        const scriptLoader = 'if("function"!=typeof importScripts){let e=document.createElement("script");';
+        const safeScriptLoader = 'if("function"!=typeof importScripts && typeof document!=="undefined"){let e=document.createElement("script");';
+        patched = patched.replace(scriptLoader, safeScriptLoader);
+
+        return {
+          code: patched,
+          map: null
+        };
+      }
+    }
+  };
+}
+
 export default defineConfig({
   base: './',
   plugins: [
@@ -48,25 +73,15 @@ export default defineConfig({
         });
       }
     },
-    {
-      name: 'strip-missing-sourcemaps',
-      enforce: 'pre',
-      transform(code, id) {
-        if (id.includes('@mediapipe')) {
-          return {
-            code: code.replace(/\/\/# sourceMappingURL=.*/g, ''),
-            map: null
-          };
-        }
-      }
-    }
+    createMediaPipePatchPlugin()
   ],
   server: {
     host: true,
     https: true
   },
   worker: {
-    format: 'es'
+    format: 'es',
+    plugins: () => [createMediaPipePatchPlugin()]
   },
   optimizeDeps: {
     exclude: ['@mediapipe/tasks-vision']

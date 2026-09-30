@@ -186,7 +186,7 @@ export class VisionManager {
     if (!previewCanvas) return;
     this.canvas = previewCanvas;
     this.ctx = this.canvas.getContext('2d');
-    if (this.videoWidth && this.videoHeight) {
+    if (this.video?.videoWidth && this.video?.videoHeight) {
       this._applyVideoSize();
     }
   }
@@ -642,10 +642,12 @@ export class VisionManager {
           frame.close();
           return;
         }
-        this.worker.postMessage(
-          { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
-          [frame]
-        );
+        const msg = { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution };
+        try {
+          this.worker.postMessage(msg, [frame]);
+        } catch {
+          this.worker.postMessage(msg);
+        }
       })
       .catch((bitmapErr) => {
         // Fallback for Safari/WebKit if direct video createImageBitmap fails:
@@ -668,10 +670,12 @@ export class VisionManager {
                 frame.close();
                 return;
               }
-              this.worker.postMessage(
-                { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
-                [frame]
-              );
+              const msg = { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution };
+              try {
+                this.worker.postMessage(msg, [frame]);
+              } catch {
+                this.worker.postMessage(msg);
+              }
             })
             .catch(() => {
               this._workerBusy = false;
@@ -788,21 +792,22 @@ export class VisionManager {
       }
     }
 
-    // If active model is not loaded yet, render gentle loading overlay in PIP
+    // If active model is not loaded yet, render gentle loading banner in PIP without occluding the preview
     if (!this.isModelReadyForMode(this.activeMode)) {
       ctx.save();
-      ctx.fillStyle = 'rgba(8, 13, 26, 0.78)';
-      ctx.fillRect(0, 0, W, H);
+      const bannerH = 20;
+      ctx.fillStyle = 'rgba(8, 13, 26, 0.85)';
+      ctx.fillRect(4, H - bannerH - 4, W - 8, bannerH);
+      ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(4, H - bannerH - 4, W - 8, bannerH);
       ctx.fillStyle = '#ffd700';
-      ctx.font = 'bold 11px Outfit, sans-serif';
+      ctx.font = 'bold 9px Outfit, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const pct = Math.round((this.preloadProgress || 0) * 100);
-      const text = pct > 0 && pct < 100 ? `⚡ LOADING AI MODELS (${pct}%)...` : '⚡ PREPARING AI MODEL...';
-      ctx.fillText(text, W / 2, H / 2 - 6);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-      ctx.font = '9px Outfit, sans-serif';
-      ctx.fillText('Ready soon', W / 2, H / 2 + 10);
+      const text = pct > 0 && pct < 100 ? `⚡ LOADING AI (${pct}%)...` : '⚡ PREPARING AI...';
+      ctx.fillText(text, W / 2, H - 4 - bannerH / 2);
       ctx.restore();
     }
 
@@ -860,9 +865,9 @@ export class VisionManager {
     this.ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
 
     // --- Grid lines based on real thresholds (batched path) ---
-    this.ctx.strokeStyle = 'rgba(255,255,255,0.30)';
-    this.ctx.lineWidth = 1;
-    this.ctx.setLineDash([3, 3]);
+    this.ctx.strokeStyle = 'rgba(0, 229, 255, 0.50)';
+    this.ctx.lineWidth = 1.5;
+    this.ctx.setLineDash([4, 3]);
 
     this.ctx.beginPath();
     this.ctx.moveTo(xL, 0); this.ctx.lineTo(xL, H);

@@ -1,5 +1,40 @@
 import { FilesetResolver, FaceLandmarker, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
 
+// Polyfill minimal document / window for MediaPipe / Emscripten inside Web Worker on iOS / WebKit
+if (typeof self.document === 'undefined') {
+  self.document = {
+    createElement(tag) {
+      if (tag === 'canvas') {
+        return (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(1, 1) : {
+          getContext: () => null,
+          width: 1,
+          height: 1,
+          style: {}
+        };
+      }
+      return {
+        style: {},
+        setAttribute() {},
+        appendChild() {},
+        removeChild() {},
+        addEventListener() {},
+        removeEventListener() {}
+      };
+    },
+    addEventListener() {},
+    removeEventListener() {},
+    documentElement: {},
+    body: {
+      appendChild() {},
+      removeChild() {}
+    }
+  };
+}
+
+if (typeof self.window === 'undefined') {
+  self.window = self;
+}
+
 // Support MediaPipe Tasks in Web Worker (ES Module Worker):
 // In Chromium-based browsers, importScripts is undefined by default in ES Module Workers.
 // MediaPipe's internal loader checks:
@@ -9,9 +44,13 @@ import { FilesetResolver, FaceLandmarker, HandLandmarker, PoseLandmarker } from 
 // MediaPipe catches it and falls back to native dynamic import(...).
 // This enables loading the Wasm ES module build cleanly.
 if (typeof importScripts === 'undefined') {
-  self.importScripts = () => {
-    throw new TypeError('Module worker does not support importScripts');
-  };
+  try {
+    self.importScripts = () => {
+      throw new TypeError('Module worker does not support importScripts');
+    };
+  } catch {
+    // Read-only in some WebKit versions
+  }
 }
 
 // Guard against ModuleFactory reset when loading multiple models in ES Module Worker:
@@ -174,6 +213,8 @@ function getRootUrl() {
 // Model creation helper: GPU→CPU delegate + local→CDN path fallbacks
 // ---------------------------------------------------------------------------
 
+let _gpuFailed = false;
+
 /**
  * Creates any MediaPipe model with automatic delegate and path fallbacks.
  * Attempt order: local+GPU → local+CPU → CDN+GPU → CDN+CPU.
@@ -182,13 +223,22 @@ function getRootUrl() {
  * Falls back gracefully when GPU is unavailable.
  */
 async function createModel(Creator, wasm, localPath, cdnPath, opts) {
-  const tryCreate = (path, delegate) =>
-    Creator.createFromOptions(wasm, { ...opts, baseOptions: { modelAssetPath: path, delegate } });
+  // Pass OffscreenCanvas explicitly to prevent MediaPipe's internal Zu from ever attempting document.createElement('canvas')
+  const baseCanvas = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(1, 1) : undefined;
+  const mergedOpts = baseCanvas ? { canvas: baseCanvas, ...opts } : { ...opts };
 
-  const attempts = [
-    [localPath, 'GPU'], [localPath, 'CPU'],
-    [cdnPath,   'GPU'], [cdnPath,   'CPU'],
-  ];
+  const tryCreate = (path, delegate) =>
+    Creator.createFromOptions(wasm, { ...mergedOpts, baseOptions: { modelAssetPath: path, delegate } });
+
+  const attempts = _gpuFailed
+    ? [
+        [localPath, 'CPU'],
+        [cdnPath,   'CPU'],
+      ]
+    : [
+        [localPath, 'GPU'], [localPath, 'CPU'],
+        [cdnPath,   'GPU'], [cdnPath,   'CPU'],
+      ];
   let lastErr;
   for (const [path, delegate] of attempts) {
     try {
@@ -532,7 +582,20 @@ self.onmessage = async (e) => {
         self.postMessage({ type: 'processed', state, inferDuration });
       } catch (err) {
         console.warn(`[VisionWorker] Error processing ${mode}:`, err);
-        self.postMessage({ type: 'processed', state: null, error: err?.message || String(err) });
+        const errMsg = err?.message || String(err);
+        // If GPU execution failed (e.g. WebGL context lost on iOS Safari in worker), fall back to CPU delegate
+        if (!_gpuFailed && (errMsg.includes('WebGL') || errMsg.includes('gl') || errMsg.includes('context'))) {
+          console.warn('[VisionWorker] WebGL context failure during inference, falling back to CPU delegate');
+          _gpuFailed = true;
+          faceLandmarker = null;
+          handLandmarker = null;
+          poseLandmarker = null;
+          faceLandmarkerPromise = null;
+          handLandmarkerPromise = null;
+          poseLandmarkerPromise = null;
+          ensureModel(mode).catch(() => {});
+        }
+        self.postMessage({ type: 'processed', state: null, error: errMsg });
       } finally {
         if (frame && typeof frame.close === 'function') {
           frame.close();
