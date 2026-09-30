@@ -252,14 +252,26 @@ export class Engine {
   _applyStageSwitch(stage) {
     const isCvStage = stage >= 2;
     this.hud.showCvFps(isCvStage);
+
+    if (isCvStage && this.visionManager.hasCameraError) {
+      this.hud.showWebcamPip(false);
+      // Seamless fallback to Stage 1 PointerControl (touch swipes / mouse)
+      this.controlManager.setStage(1);
+      this.hud.setWebcamStatus(i18n.t('hud.cam.offline_fallback'), '#ff6b35');
+      this.hud.announceStage(stage, this.scoreSystem.lockedStage !== null, this.scoreSystem.cycle);
+      this.hud.showCameraErrorModal(this.visionManager.lastError);
+      return;
+    }
+
     if (isCvStage) {
       this.wakeLock?.request();
-      if (!this.visionManager.isReady) {
-        this.visionManager.initWebcam(this.hud.elWebcamCanvas);
+      if (!this.visionManager.isReady && !this.visionManager.hasCameraError) {
+        this.visionManager.initWebcam(this.hud.elWebcamCanvas).catch(() => {});
       }
       if (this.visionManager.settings?.pipMode !== 'off') {
         this.hud.showWebcamPip(true);
       }
+
       const stageMode = stage === 2 ? 'zone' : 'handzone';
       if (this.visionManager.isModelReadyForMode(stageMode)) {
         this.hud.setWebcamStatus(i18n.t('hud.cam.active'));
@@ -281,10 +293,25 @@ export class Engine {
   }
 
   _bindHUD() {
-    this.hud.onStartGame = () => this.startGame(0, false, false);
-    this.hud.onRestartGame = () => this.startGame(0, false, false);
+    const warmUpCameraOnGesture = () => {
+      // iOS Safari requires getUserMedia to be directly triggered by an active user touch/click gesture
+      if (!this.visionManager.isReady && !this.visionManager.hasCameraError) {
+        this.visionManager.initWebcam(this.hud.elWebcamCanvas).catch(() => {});
+      }
+    };
+
+    this.hud.onStartGame = () => {
+      warmUpCameraOnGesture();
+      this.startGame(0, false, false);
+    };
+
+    this.hud.onRestartGame = () => {
+      warmUpCameraOnGesture();
+      this.startGame(0, false, false);
+    };
 
     this.hud.onStartDebug = (stage, isLocked, isGod, speedMultiplier) => {
+      warmUpCameraOnGesture();
       this.startGame(stage, isLocked, isGod, speedMultiplier);
     };
 
@@ -293,9 +320,31 @@ export class Engine {
       this.setDebugStage(stage, isLocked, speedMultiplier);
     };
 
-    this.hud.onToggleCamera = () => {
+    this.hud.onRetryCamera = async () => {
+      this.hud.closeCameraErrorModal();
+      const ok = await this.visionManager.initWebcam(this.hud.elWebcamCanvas);
+      if (ok && this.scoreSystem.stage >= 2) {
+        this._applyStageSwitch(this.scoreSystem.stage);
+      }
+    };
+
+    this.visionManager.onCameraError = (errorInfo) => {
+      console.warn('[Engine] VisionManager camera error:', errorInfo);
+      const isCvStage = this.scoreSystem.stage >= 2;
+      if (isCvStage || this._transitioning) {
+        this.hud.showCameraErrorModal(errorInfo);
+        // Seamless fallback to Stage 1 PointerControl (touch swipes / mouse)
+        this.controlManager.setStage(1);
+        this.hud.setWebcamStatus(i18n.t('hud.cam.offline_fallback'), '#ff6b35');
+      }
+    };
+
+    this.hud.onToggleCamera = async () => {
       if (!this.visionManager.isReady) {
-        this.visionManager.initWebcam(this.hud.elWebcamCanvas);
+        const ok = await this.visionManager.initWebcam(this.hud.elWebcamCanvas);
+        if (!ok && this.visionManager.lastError) {
+          this.hud.showCameraErrorModal(this.visionManager.lastError);
+        }
       }
       const pip = this.hud.elWebcamPip;
       const isHidden = !pip || pip.classList.contains('hidden');
@@ -575,6 +624,7 @@ export class Engine {
 
   _onPlayerHit(obstacle) {
     if (this.invulnerableTimer > 0) return;
+    if (this.hud?.elCamErrorModal && !this.hud.elCamErrorModal.classList.contains('hidden')) return;
 
     if (this.godMode) {
       this.cameraRig.addTrauma(0.4);
@@ -614,8 +664,8 @@ export class Engine {
       // Early background camera pre-warm as soon as player reaches Stage 1 (Mouse/Pointer stage)
       if (!this._prewarmedCam && (this.scoreSystem.stage >= 1 || this.scoreSystem.distance >= 300)) {
         this._prewarmedCam = true;
-        if (!this.visionManager.isReady) {
-          this.visionManager.initWebcam(this.hud.elWebcamCanvas);
+        if (!this.visionManager.isReady && !this.visionManager.hasCameraError) {
+          this.visionManager.initWebcam(this.hud.elWebcamCanvas).catch(() => {});
         }
       }
 

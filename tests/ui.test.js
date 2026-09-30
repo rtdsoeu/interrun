@@ -12,6 +12,7 @@ describe('UI Templates (getHUDHtml)', () => {
     expect(html).toContain('id="hud-bottom-left"');
     expect(html).toContain('id="hud-fps"');
     expect(html).toContain('id="hud-cv-panel"');
+    expect(html).toContain('id="hud-cam-lowlight-badge"');
     expect(html).toContain('id="slider-bgm-vol"');
     expect(html).toContain('id="slider-sfx-vol"');
     expect(html).toContain('id="settings-modal"');
@@ -34,5 +35,8 @@ describe('UI Templates (getHUDHtml)', () => {
     expect(html).toContain('65%');
     expect(html).toContain('85%');
     expect(html).toContain('Synthwave Groove');
+    expect(html).toContain('id="camera-error-modal"');
+    expect(html).toContain('id="btn-cam-error-retry"');
+    expect(html).toContain('id="btn-cam-error-continue"');
   });
 });

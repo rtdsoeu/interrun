@@ -96,7 +96,9 @@ export const translations = {
   'hud.immortal':      { en: '🛡️ GOD MODE (♾️)',      uk: '🛡️ БЕЗСМЕРТЯ (♾️)' },
   'hud.cam.active':          { en: 'CAMERA: ACTIVE',        uk: 'КАМЕРА: АКТИВНА' },
   'hud.cam.loading_models':  { en: 'LOADING AI MODELS...',  uk: 'ЗАВАНТАЖЕННЯ AI МОДЕЛЕЙ...' },
-  'hud.cam.lowlight':  { en: 'Low light: adaptive tracking active', uk: 'Слабке світло: адаптивний трекінг активний' },
+  'hud.cam.lowlight':        { en: 'Low light: adaptive tracking active', uk: 'Слабке світло: адаптивний трекінг активний' },
+  'hud.cam.lowlight_badge':  { en: 'LOW LIGHT',             uk: 'СЛАБКЕ СВІТЛО' },
+  'hud.cam.offline_fallback':{ en: 'CAM OFFLINE — SWIPES ACTIVE',        uk: 'КАМЕРА ОФЛАЙН — СВАЙПИ АКТИВНІ' },
   'hud.sound':         { en: 'SOUND',                 uk: 'ЗВУК' },
 
   // ─── GAME OVER ──────────────────────────────────────────────────────────────
@@ -203,4 +205,17 @@ export const translations = {
 
   // ─── LANGUAGE ───────────────────────────────────────────────────────────────
   'lang.label':        { en: 'Language',              uk: 'Мова' },
+
+  // ─── CAMERA ERROR / FALLBACK MODAL ───────────────────────────────────────────
+  'modal.cam_error.title':         { en: '📹 Camera Status & Fallback',         uk: '📹 Стан камери та фолбек' },
+  'modal.cam_error.subtitle':      { en: 'Camera is unavailable. Touch / swipe fallback controls are active.', uk: 'Камера недоступна. Увімкнено керування свайпами / тачем.' },
+  'modal.cam_error.permission':    { en: 'Camera access was denied. You can grant access in browser/Safari permissions, or continue playing using touch swipes or mouse.', uk: 'Доступ до камери відхилено. Ви можете надати дозвіл у налаштуваннях Safari / браузера або продовжити гру свайпами чи мишею.' },
+  'modal.cam_error.insecure':      { en: 'WebRTC camera requires a secure HTTPS connection. On iPhone/iOS, Safari strictly blocks camera access on unencrypted HTTP.', uk: 'Камера WebRTC вимагає захищеного з\'єднання HTTPS. На iPhone Safari блокує доступ до камери на незашифрованому HTTP.' },
+  'modal.cam_error.not_found':     { en: 'No camera device found or camera is occupied by another application.', uk: 'Камеру не знайдено або вона зайнята іншим додатком.' },
+  'modal.cam_error.in_use':        { en: 'Camera is currently in use by another app or tab. Please close other camera apps.', uk: 'Камера зараз використовується іншою програмою або вкладкою. Закрийте інші програми з камерою.' },
+  'modal.cam_error.general':       { en: 'Failed to access camera stream. Touch / mouse fallback is active for all stages.', uk: 'Не вдалося отримати доступ до відеопотоку камери. Для всіх етапів увімкнено фолбек на свайпи/мишу.' },
+  'modal.cam_error.fallback_info': { en: '⚡ Fallback active: Stages 2–5 can be fully controlled with screen swipes (touch / mouse) without any disruption!', uk: '⚡ Фолбек активний: Етапи 2–5 повноцінно керуються свайпами по екрану (або мишею) без перешкод!' },
+  'modal.cam_error.continue':      { en: 'Continue with Swipes / Touch',        uk: 'Продовжити свайпами / тачем' },
+  'modal.cam_error.retry':         { en: '🔄 Retry Camera',                     uk: '🔄 Спробувати камеру знову' },
 };
+

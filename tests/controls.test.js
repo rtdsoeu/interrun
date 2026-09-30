@@ -725,4 +725,161 @@ describe('WakeLockManager Screen Sleep Prevention', () => {
   });
 });
 
+describe('Camera Error & Fallback System', () => {
+  it('dispatches onCameraError and records error state when getUserMedia fails', async () => {
+    const { VisionManager } = await import('../src/vision/VisionManager.js');
+    const vm = new VisionManager();
+
+    let capturedError = null;
+    vm.onCameraError = (err) => {
+      capturedError = err;
+    };
+
+    // Simulate permission denied
+    const origMediaDevices = navigator.mediaDevices;
+    try {
+      navigator.mediaDevices = {
+        getUserMedia: async () => {
+          const err = new Error('Permission denied by user');
+          err.name = 'NotAllowedError';
+          throw err;
+        }
+      };
+
+      const result = await vm.initWebcam();
+      expect(result).toBe(false);
+      expect(vm.hasPermission).toBe(false);
+      expect(vm.hasCameraError).toBe(true);
+      expect(vm.lastError?.type).toBe('permission_denied');
+      expect(capturedError?.type).toBe('permission_denied');
+    } finally {
+      navigator.mediaDevices = origMediaDevices;
+    }
+  });
+
+  it('correctly opens and closes camera error modal in HUD', async () => {
+    const { HUD } = await import('../src/ui/HUD.js');
+    const root = { innerHTML: '' };
+    const elements = {};
+    const mockDoc = {
+      getElementById: (id) => elements[id] || (elements[id] = {
+        textContent: '',
+        innerHTML: '',
+        style: {},
+        classList: {
+          _set: new Set(['hidden']),
+          add(c) { this._set.add(c); },
+          remove(c) { this._set.delete(c); },
+          contains(c) { return this._set.has(c); },
+          toggle(c, force) {
+            if (force !== undefined) {
+              if (force) this._set.add(c);
+              else this._set.delete(c);
+            } else {
+              if (this._set.has(c)) this._set.delete(c);
+              else this._set.add(c);
+            }
+          }
+        },
+        addEventListener: () => {}
+      }),
+      querySelectorAll: () => []
+    };
+    const origDoc = globalThis.document;
+    globalThis.document = mockDoc;
+    try {
+      const hud = new HUD(root, null, null, null);
+      expect(hud.isAnyModalOpen()).toBe(false);
+
+      // Show camera error modal
+      hud.showCameraErrorModal({ type: 'permission_denied' });
+      expect(hud.isAnyModalOpen()).toBe(true);
+      expect(hud.elCamErrorModal.classList.contains('hidden')).toBe(false);
+      expect(hud.elCamErrorBody.innerHTML).toBeTruthy();
+
+      // Close modal
+      hud.closeCameraErrorModal();
+      expect(hud.elCamErrorModal.classList.contains('hidden')).toBe(true);
+      expect(hud.isAnyModalOpen()).toBe(false);
+    } finally {
+      globalThis.document = origDoc;
+    }
+  });
+
+  it('triggers seamless fallback to Stage 1 PointerControl on CV stage transition if camera has error', async () => {
+    const { Engine } = await import('../src/game/Engine.js');
+    let capturedStage = null;
+    let cameraModalShown = false;
+    let statusSet = null;
+
+    // Lightweight mock engine context for _applyStageSwitch
+    const engineCtx = {
+      scoreSystem: { lockedStage: null, cycle: 0 },
+      visionManager: {
+        hasCameraError: true,
+        lastError: { type: 'permission_denied' },
+        isReady: false
+      },
+      hud: {
+        showCvFps: () => {},
+        showWebcamPip: () => {},
+        setWebcamStatus: (status) => { statusSet = status; },
+        announceStage: () => {},
+        showCameraErrorModal: () => { cameraModalShown = true; }
+      },
+      controlManager: {
+        setStage: (stage) => { capturedStage = stage; }
+      }
+    };
+
+    // Call Engine prototype method directly with our context
+    Engine.prototype._applyStageSwitch.call(engineCtx, 2);
+
+    expect(capturedStage).toBe(1); // PointerControl fallback
+    expect(cameraModalShown).toBe(true);
+    expect(statusSet).toContain('OFFLINE');
+  });
+
+  it('toggles low-light badge in HUD metrics panel when camera FPS is below 18', async () => {
+    const { HUD } = await import('../src/ui/HUD.js');
+    const elements = {};
+    const mockDoc = {
+      getElementById: (id) => elements[id] || (elements[id] = {
+        textContent: '',
+        innerHTML: '',
+        style: {},
+        classList: {
+          _set: new Set(['hidden']),
+          add(c) { this._set.add(c); },
+          remove(c) { this._set.delete(c); },
+          contains(c) { return this._set.has(c); }
+        },
+        addEventListener: () => {}
+      }),
+      querySelectorAll: () => []
+    };
+    const origDoc = globalThis.document;
+    globalThis.document = mockDoc;
+    try {
+      const hud = new HUD({ innerHTML: '' }, null, null, null);
+
+      // Normal lighting: 30 FPS -> badge hidden
+      hud.updateCvFPS(30, 20, 30);
+      expect(hud.elLowLightBadge.classList.contains('hidden')).toBe(true);
+
+      // Low light: 14 FPS -> badge visible
+      hud.updateCvFPS(15, 45, 14);
+      expect(hud.elLowLightBadge.classList.contains('hidden')).toBe(false);
+
+      // Recovers: 30 FPS -> badge hidden again
+      hud.updateCvFPS(30, 20, 30);
+      expect(hud.elLowLightBadge.classList.contains('hidden')).toBe(true);
+    } finally {
+      globalThis.document = origDoc;
+    }
+  });
+});
+
+
+
 

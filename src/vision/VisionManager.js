@@ -57,8 +57,26 @@ export class VisionManager {
     this._dispatchTimer = null;
     this._watchdogTimer = null;
     this._rvfcId = null;
-    this._supportsVideoFrame = typeof VideoFrame !== 'undefined';
     this._initPromise = null;
+
+    // Platform detection (iOS & Safari have known WebKit quirks with VideoFrame & off-screen video)
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+    const isIOS = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+    const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(ua);
+    this.isIOS = isIOS;
+    this.isSafari = isSafari;
+
+    // VideoFrame is NOT supported by MediaPipe Tasks Wasm in WebKit/Safari,
+    // and new VideoFrame(HTMLVideoElement) has cloning/transfer issues on iOS.
+    // We restrict zero-copy VideoFrame exclusively to non-WebKit browsers (Chrome/Edge/Firefox).
+    this._supportsVideoFrame = typeof VideoFrame !== 'undefined' && !isIOS && !isSafari;
+    this._fallbackCanvas = null;
+    this._fallbackCtx = null;
+
+    // Error tracking & callbacks for camera modal & controls fallback
+    this.hasCameraError = false;
+    this.lastError = null;
+    this.onCameraError = null; // callback(errorInfo)
 
     // Camera & CV Performance metrics
     this.hardwareCamFps = 0;
@@ -187,27 +205,46 @@ export class VisionManager {
     }
 
     this._initPromise = (async () => {
-      // Check for getUserMedia support
+      // Check for getUserMedia support (HTTPS / localhost or browser flag required)
       if (!navigator?.mediaDevices?.getUserMedia) {
-        console.warn('[VisionManager] WebRTC / getUserMedia is not supported or blocked in this context.');
+        const isSecure = typeof window === 'undefined' || window.isSecureContext !== false;
+        const errorInfo = {
+          type: !isSecure ? 'insecure_context' : 'unsupported',
+          name: !isSecure ? 'InsecureContextError' : 'NotSupportedError',
+          message: !isSecure
+            ? 'WebRTC camera access requires HTTPS (or localhost).'
+            : 'WebRTC / getUserMedia is not supported or blocked in this browser.'
+        };
+        console.warn('[VisionManager]', errorInfo.message);
         this.hasPermission = false;
+        this.hasCameraError = true;
+        this.lastError = errorInfo;
+        if (this.onCameraError) {
+          this.onCameraError(errorInfo);
+        }
         return false;
       }
 
       try {
-        if (!this.video) {
+        if (!this.video && typeof document !== 'undefined') {
           this.video = document.createElement('video');
           this.video.setAttribute('playsinline', '');
+          this.video.setAttribute('webkit-playsinline', 'true');
+          this.video.playsInline = true;
           this.video.setAttribute('autoplay', '');
           this.video.setAttribute('muted', '');
           this.video.muted = true;
-          // Do NOT use display: none — WebKit (iOS) pauses or stops decoding frames for hidden elements
+          // In WebKit (iOS Safari), elements off-screen or with 0 opacity have their frame decoding paused to save power.
+          // Keep it rendered within viewport bounds with 0.001 opacity behind everything,
+          // without constraining to tiny dimensions (which downscales hardware decode buffers on Android).
           this.video.style.position = 'fixed';
-          this.video.style.top = '-9999px';
-          this.video.style.left = '-9999px';
-          this.video.style.width = '1px';
-          this.video.style.height = '1px';
-          this.video.style.opacity = '0';
+          this.video.style.top = '0';
+          this.video.style.left = '0';
+          this.video.style.width = '100%';
+          this.video.style.height = '100%';
+          this.video.style.objectFit = 'cover';
+          this.video.style.opacity = '0.001';
+          this.video.style.zIndex = '-9999';
           this.video.style.pointerEvents = 'none';
           document.body.appendChild(this.video);
         }
@@ -285,6 +322,8 @@ export class VisionManager {
 
         this.hasPermission = true;
         this.isReady = true;
+        this.hasCameraError = false;
+        this.lastError = null;
 
         // Start Web Worker background thread
         this._initWorker();
@@ -304,8 +343,22 @@ export class VisionManager {
         return true;
       } catch (err) {
         console.warn('[VisionManager] Camera access error:', err);
+        const name = err?.name || '';
+        const isPermissionDenied = name === 'NotAllowedError' || name === 'PermissionDeniedError';
+        const isNotFound = name === 'NotFoundError' || name === 'DevicesNotFoundError';
+        const isNotReadable = name === 'NotReadableError' || name === 'TrackStartError';
+        const errorInfo = {
+          type: isPermissionDenied ? 'permission_denied' : (isNotFound ? 'not_found' : (isNotReadable ? 'in_use' : 'general')),
+          name,
+          message: err?.message || String(err)
+        };
         this.hasPermission = false;
         this.isReady = false;
+        this.hasCameraError = true;
+        this.lastError = errorInfo;
+        if (this.onCameraError) {
+          this.onCameraError(errorInfo);
+        }
         return false;
       } finally {
         this._initPromise = null;
@@ -594,8 +647,38 @@ export class VisionManager {
           [frame]
         );
       })
-      .catch(() => {
-        this._workerBusy = false;
+      .catch((bitmapErr) => {
+        // Fallback for Safari/WebKit if direct video createImageBitmap fails:
+        // paint into an in-memory 2D canvas and extract bitmap from canvas.
+        try {
+          if (!this._fallbackCanvas) {
+            this._fallbackCanvas = document.createElement('canvas');
+            this._fallbackCtx = this._fallbackCanvas.getContext('2d', { willReadFrequently: true });
+          }
+          const vw = this.video.videoWidth || 320;
+          const vh = this.video.videoHeight || 240;
+          if (this._fallbackCanvas.width !== vw || this._fallbackCanvas.height !== vh) {
+            this._fallbackCanvas.width = vw;
+            this._fallbackCanvas.height = vh;
+          }
+          this._fallbackCtx.drawImage(this.video, 0, 0, vw, vh);
+          createImageBitmap(this._fallbackCanvas)
+            .then((frame) => {
+              if (!this._loopRunning || !this._workerBusy) {
+                frame.close();
+                return;
+              }
+              this.worker.postMessage(
+                { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
+                [frame]
+              );
+            })
+            .catch(() => {
+              this._workerBusy = false;
+            });
+        } catch {
+          this._workerBusy = false;
+        }
       });
   }
 

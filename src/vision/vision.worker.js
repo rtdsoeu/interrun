@@ -78,15 +78,23 @@ function resizeBitmap(bitmap, resolution) {
   const targetH = Math.round(srcH * scale);
   const key = `${targetW}x${targetH}`;
 
-  if (_resizeKey !== key) {
-    // Dimensions changed — allocate new canvas (rare: only on preset or AR change)
-    _resizeCanvas = new OffscreenCanvas(targetW, targetH);
-    _resizeCtx    = _resizeCanvas.getContext('2d', { alpha: false, desynchronized: true });
-    _resizeKey    = key;
+  try {
+    if (_resizeKey !== key) {
+      // Dimensions changed — allocate new canvas (rare: only on preset or AR change)
+      _resizeCanvas = new OffscreenCanvas(targetW, targetH);
+      _resizeCtx    = _resizeCanvas.getContext('2d', { alpha: false, desynchronized: true })
+                   || _resizeCanvas.getContext('2d');
+      _resizeKey    = key;
+    }
+    _resizeCtx.drawImage(bitmap, 0, 0, targetW, targetH);
+    const resized = _resizeCanvas.transferToImageBitmap();
+    bitmap.close();
+    return resized;
+  } catch (canvasErr) {
+    // If OffscreenCanvas transfer fails on older WebKit, pass original bitmap directly
+    console.warn('[VisionWorker] OffscreenCanvas resize fallback:', canvasErr);
+    return bitmap;
   }
-  _resizeCtx.drawImage(bitmap, 0, 0, targetW, targetH);
-  bitmap.close();
-  return _resizeCanvas.transferToImageBitmap();
 }
 
 let visionTasks = null;
@@ -524,9 +532,11 @@ self.onmessage = async (e) => {
         self.postMessage({ type: 'processed', state, inferDuration });
       } catch (err) {
         console.warn(`[VisionWorker] Error processing ${mode}:`, err);
-        self.postMessage({ type: 'processed', state: null, error: err.message });
+        self.postMessage({ type: 'processed', state: null, error: err?.message || String(err) });
       } finally {
-        frame.close();
+        if (frame && typeof frame.close === 'function') {
+          frame.close();
+        }
       }
     }
   } catch (fatalErr) {

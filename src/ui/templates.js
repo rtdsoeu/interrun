@@ -99,6 +99,9 @@ export function getHUDHtml(t, i18n, state = {}) {
           <span id="hud-cv-fps" class="hud-cv-num">--</span>
           <span class="hud-fps-label">FPS</span>
           <span id="hud-cv-ms" class="hud-cv-ms"></span>
+          <span id="hud-cam-lowlight-badge" class="hidden" style="font-size:9px; font-weight:800; background:rgba(255,215,0,0.18); color:#ffd700; border:1px solid rgba(255,215,0,0.5); border-radius:4px; padding:1px 5px; margin-left:3px; text-transform:uppercase; letter-spacing:0.5px; display:inline-flex; align-items:center; gap:2px;" title="${t('hud.cam.lowlight')}">
+            <span>💡</span><span data-i18n="hud.cam.lowlight_badge">${t('hud.cam.lowlight_badge')}</span>
+          </span>
         </div>
       </div>
 
@@ -461,6 +464,37 @@ export function getHUDHtml(t, i18n, state = {}) {
             ${t('settings.save')}
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- Camera Error / Fallback Modal -->
+    <div id="camera-error-modal" class="hidden" style="position:absolute; inset:0; border-radius:inherit; background:rgba(0,0,0,0.85); backdrop-filter:blur(16px); z-index:120; display:flex; align-items:center; justify-content:center; pointer-events:all;">
+      <div style="background:rgba(20,24,36,0.95); border:1px solid rgba(255,107,53,0.4); box-shadow:0 16px 48px rgba(0,0,0,0.8), 0 0 30px rgba(255,107,53,0.2); border-radius:20px; padding:28px; width:92%; max-width:520px; display:flex; flex-direction:column; gap:18px; color:#fff;">
+
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-size:22px; font-weight:800; color:#ff6b35; display:flex; align-items:center; gap:8px;">
+              <span id="cam-error-title" data-i18n="modal.cam_error.title">${t('modal.cam_error.title')}</span>
+            </div>
+            <div id="cam-error-subtitle" style="font-size:12px; color:rgba(255,255,255,0.6); margin-top:2px;" data-i18n="modal.cam_error.subtitle">${t('modal.cam_error.subtitle')}</div>
+          </div>
+          <button id="btn-close-cam-error" style="background:none; border:none; color:rgba(255,255,255,0.6); font-size:24px; cursor:pointer;">✕</button>
+        </div>
+
+        <div id="cam-error-body" style="background:rgba(255,107,53,0.1); border:1px solid rgba(255,107,53,0.25); border-radius:12px; padding:16px; font-size:13px; line-height:1.5; color:#ffddcc;">
+          ${t('modal.cam_error.general')}
+        </div>
+
+        <div style="background:rgba(0,255,136,0.08); border:1px solid rgba(0,255,136,0.2); border-radius:12px; padding:12px 16px; font-size:12px; color:#aaffd0; display:flex; align-items:center; gap:10px;">
+          <span style="font-size:18px;">💡</span>
+          <span data-i18n="modal.cam_error.fallback_info">${t('modal.cam_error.fallback_info')}</span>
+        </div>
+
+        <div style="display:flex; gap:12px; justify-content:flex-end; border-top:1px solid rgba(255,255,255,0.08); padding-top:16px; flex-wrap:wrap;">
+          <button id="btn-cam-error-retry" class="btn btn-ghost" style="border-color:rgba(0,229,255,0.4); color:var(--accent); padding:10px 18px; font-size:13px;" data-i18n="modal.cam_error.retry">${t('modal.cam_error.retry')}</button>
+          <button id="btn-cam-error-continue" class="btn btn-primary" style="padding:10px 22px; font-size:13px;" data-i18n="modal.cam_error.continue">${t('modal.cam_error.continue')}</button>
+        </div>
+
       </div>
     </div>
   `;

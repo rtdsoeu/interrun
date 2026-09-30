@@ -33,6 +33,7 @@ export class HUD {
     this.onToggleSound = null;
     this.onUpdateAudioSettings = null;
     this.onApplyDisplaySettings = null;
+    this.onRetryCamera = null;
 
     this._isGodMode = false;
     this._isStageLocked = false;
@@ -83,8 +84,10 @@ export class HUD {
     const debugOpen    = !this.elDebugModal?.classList.contains('hidden');
     const skinOpen     = !this.elSkinModal?.classList.contains('hidden');
     const settingsOpen = !this.elSettingsModal?.classList.contains('hidden');
+    const camErrorOpen = !this.elCamErrorModal?.classList.contains('hidden');
     const pipVisible   = !this.elWebcamPip?.classList.contains('hidden');
     const cvVisible    = this.elCvPanel && this.elCvPanel.style.display !== 'none';
+    const lowLightOpen = !this.elLowLightBadge?.classList.contains('hidden');
     const selectedStage = this._selectedDebugStage;
     const selectedSpeed = this._selectedDebugSpeed;
 
@@ -98,8 +101,10 @@ export class HUD {
     if (debugOpen)    this.elDebugModal?.classList.remove('hidden');
     if (skinOpen)     this.elSkinModal?.classList.remove('hidden');
     if (settingsOpen) this.elSettingsModal?.classList.remove('hidden');
+    if (camErrorOpen) this.elCamErrorModal?.classList.remove('hidden');
     if (pipVisible)   this.elWebcamPip?.classList.remove('hidden');
     if (cvVisible && this.elCvPanel) this.elCvPanel.style.display = 'inline-flex';
+    if (lowLightOpen) this.elLowLightBadge?.classList.remove('hidden');
 
     if (!isMenuVisible) this.elMenu?.classList.add('hidden');
     if (isHudVisible) this.elHud?.classList.remove('hidden');
@@ -130,6 +135,7 @@ export class HUD {
     this.elCvMs         = document.getElementById('hud-cv-ms');
     this.elCamFps       = document.getElementById('hud-cam-fps');
     this.elCvPanel      = document.getElementById('hud-cv-panel');
+    this.elLowLightBadge = document.getElementById('hud-cam-lowlight-badge');
     this.elControlHint  = document.getElementById('control-hint');
     this.elSpeedBar     = document.getElementById('speed-bar-fill');
     this.elLivesRow     = document.getElementById('lives-row');
@@ -148,6 +154,8 @@ export class HUD {
     this.elSkinModal    = document.getElementById('skin-modal');
     this.elDebugModal   = document.getElementById('debug-modal');
     this.elSettingsModal = document.getElementById('settings-modal');
+    this.elCamErrorModal = document.getElementById('camera-error-modal');
+    this.elCamErrorBody  = document.getElementById('cam-error-body');
     this.elCountdownBanner = document.getElementById('stage-countdown-banner');
     this.elWebcamPip    = document.getElementById('webcam-pip');
     this.elWebcamCanvas = document.getElementById('webcam-canvas');
@@ -215,11 +223,18 @@ export class HUD {
     };
 
     // Backdrop click dismiss for modals
-    [this.elDebugModal, this.elSkinModal, this.elSettingsModal].forEach(modal => {
+    [this.elDebugModal, this.elSkinModal, this.elSettingsModal, this.elCamErrorModal].forEach(modal => {
       if (!modal) return;
       modal.addEventListener('click', (e) => {
         if (e.target === modal) modal.classList.add('hidden');
       });
+    });
+
+    // Camera error modal actions
+    bindFastTap('btn-close-cam-error', () => this.closeCameraErrorModal());
+    bindFastTap('btn-cam-error-continue', () => this.closeCameraErrorModal());
+    bindFastTap('btn-cam-error-retry', () => {
+      if (this.onRetryCamera) this.onRetryCamera();
     });
 
     // Webcam PIP: fix double-toggle (only trigger onToggleCamera once)
@@ -532,16 +547,34 @@ export class HUD {
     }
   }
 
+  showCameraErrorModal(errorInfo) {
+    if (this.elCamErrorBody) {
+      let msgKey = 'modal.cam_error.general';
+      if (errorInfo?.type === 'permission_denied') msgKey = 'modal.cam_error.permission';
+      else if (errorInfo?.type === 'insecure_context') msgKey = 'modal.cam_error.insecure';
+      else if (errorInfo?.type === 'not_found') msgKey = 'modal.cam_error.not_found';
+      else if (errorInfo?.type === 'in_use') msgKey = 'modal.cam_error.in_use';
+      this.elCamErrorBody.innerHTML = i18n.t(msgKey);
+    }
+    this.elCamErrorModal?.classList.remove('hidden');
+  }
+
+  closeCameraErrorModal() {
+    this.elCamErrorModal?.classList.add('hidden');
+  }
+
   isAnyModalOpen() {
     return (!this.elDebugModal?.classList.contains('hidden')) ||
            (!this.elSkinModal?.classList.contains('hidden')) ||
-           (!this.elSettingsModal?.classList.contains('hidden'));
+           (!this.elSettingsModal?.classList.contains('hidden')) ||
+           (!this.elCamErrorModal?.classList.contains('hidden'));
   }
 
   closeAllModals() {
     this.closeDebugModal();
     this.elSkinModal?.classList.add('hidden');
     this.closeSettingsModal();
+    this.closeCameraErrorModal();
   }
 
   openDebugModal() {
@@ -680,6 +713,10 @@ export class HUD {
       this.elCamFps.textContent = isLowLight ? `📹${camFps} 💡` : `📹${camFps}`;
       this.elCamFps.style.color = isLowLight ? '#ffd700' : 'rgba(255,255,255,0.65)';
       this.elCamFps.title = isLowLight ? i18n.t('hud.cam.lowlight') : 'Camera FPS';
+      if (this.elLowLightBadge) {
+        if (isLowLight) this.elLowLightBadge.classList.remove('hidden');
+        else this.elLowLightBadge.classList.add('hidden');
+      }
     }
   }
 
