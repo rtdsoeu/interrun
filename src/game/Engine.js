@@ -79,6 +79,8 @@ export class Engine {
     this._bindHUD();
     this.visionManager.onFpsUpdate = (cvFps, frametime, camFps) => this.hud.updateCvFPS(cvFps, frametime, camFps);
     this.visionManager.onSettingsCalibrated = (settings) => this.hud.syncVisionSettings(settings);
+    this.visionManager.onPreloadProgress = (progress, stage) => this.hud.updateAiPreloadProgress(progress, stage);
+    this.visionManager.onAllModelsReady = () => this.hud.onAiModelsReady();
 
     // 6. Debug hotkeys
     this._bindDebugShortcuts();
@@ -258,7 +260,13 @@ export class Engine {
       if (this.visionManager.settings?.pipMode !== 'off') {
         this.hud.showWebcamPip(true);
       }
-      this.hud.setWebcamStatus(i18n.t('hud.cam.active'));
+      const stageMode = stage === 2 ? 'zone' : 'handzone';
+      if (this.visionManager.isModelReadyForMode(stageMode)) {
+        this.hud.setWebcamStatus(i18n.t('hud.cam.active'));
+      } else {
+        const pct = Math.round((this.visionManager.preloadProgress || 0) * 100);
+        this.hud.setWebcamStatus(`${i18n.t('hud.cam.loading_models')} (${pct}%)`, '#ffd700');
+      }
     } else {
       this.hud.showWebcamPip(false);
     }

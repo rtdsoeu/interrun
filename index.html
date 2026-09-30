@@ -19,6 +19,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/src/style.css" />
+  <!-- Eagerly prefetch MediaPipe AI models for immediate zero-lag CV controls -->
+  <link rel="prefetch" href="/models/face_landmarker.task" as="fetch" crossorigin />
+  <link rel="prefetch" href="/models/hand_landmarker.task" as="fetch" crossorigin />
 </head>
 <body>
   <div id="game-wrapper">

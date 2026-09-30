@@ -16,6 +16,9 @@ export const translations = {
   'menu.skins':        { en: 'SKINS & THEMES',        uk: 'СКІНИ & ТЕМИ' },
   'menu.settings':     { en: '⚙️ SETTINGS',           uk: '⚙️ НАЛАШТУВАННЯ' },
 
+  'menu.ai_loading':   { en: 'Loading AI Models...',  uk: 'Завантаження AI моделей...' },
+  'menu.ai_ready':     { en: '⚡ AI Models: Ready',   uk: '⚡ AI Моделі: Готові' },
+
   // ─── STAGES ─────────────────────────────────────────────────────────────────
   'stage.0.name':      { en: 'Keyboard',              uk: 'Клавіатура' },
   'stage.1.name':      { en: 'Touch / Mouse',         uk: 'Touch / Миша' },
@@ -91,7 +94,8 @@ export const translations = {
   'hud.menu':          { en: 'MENU',                  uk: 'МЕНЮ' },
   'hud.debug':         { en: 'DEBUG',                 uk: 'ДЕБАГ' },
   'hud.immortal':      { en: '🛡️ GOD MODE (♾️)',      uk: '🛡️ БЕЗСМЕРТЯ (♾️)' },
-  'hud.cam.active':    { en: 'CAMERA: ACTIVE',        uk: 'КАМЕРА: АКТИВНА' },
+  'hud.cam.active':          { en: 'CAMERA: ACTIVE',        uk: 'КАМЕРА: АКТИВНА' },
+  'hud.cam.loading_models':  { en: 'LOADING AI MODELS...',  uk: 'ЗАВАНТАЖЕННЯ AI МОДЕЛЕЙ...' },
   'hud.cam.lowlight':  { en: 'Low light: adaptive tracking active', uk: 'Слабке світло: адаптивний трекінг активний' },
   'hud.sound':         { en: 'SOUND',                 uk: 'ЗВУК' },
 

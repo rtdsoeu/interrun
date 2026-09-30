@@ -162,6 +162,12 @@ export function getHUDHtml(t, i18n, state = {}) {
         <div class="stage-chip" data-stage="4" style="border-color:rgba(255,107,53,0.5); color:#ff6b35; cursor:pointer;" title="Launch Stage 4">4: ${t('stage.4.name')} ✌️</div>
         <div class="stage-chip" data-stage="5" style="border-color:rgba(255,215,0,0.5); color:#ffd700; cursor:pointer;" title="Launch Stage 5">5: ${t('stage.5.name')} 👋</div>
       </div>
+
+      <!-- AI Models Preload Status -->
+      <div id="menu-ai-status" style="font-size:11px; font-weight:700; letter-spacing:0.8px; color:rgba(255,255,255,0.75); display:flex; align-items:center; justify-content:center; gap:6px; margin-top:14px;">
+        <span id="menu-ai-indicator" style="width:8px; height:8px; border-radius:50%; background:${state.isAiReady ? '#00ff88' : '#ffd700'}; display:inline-block; box-shadow:0 0 8px ${state.isAiReady ? '#00ff88' : '#ffd700'};"></span>
+        <span id="menu-ai-text" style="${state.isAiReady ? 'color:rgba(0, 255, 136, 0.9);' : ''}">${state.isAiReady ? t('menu.ai_ready') : t('menu.ai_loading')}</span>
+      </div>
     </div>
 
     <!-- Game Over -->

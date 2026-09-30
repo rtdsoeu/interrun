@@ -18,6 +18,10 @@ export class HUD {
     this.skinManager = skinManager;
     this.soundFx = soundFx;
     this.visionManager = visionManager;
+    if (this.visionManager) {
+      this.visionManager.onPreloadProgress = (progress, stage) => this.updateAiPreloadProgress(progress, stage);
+      this.visionManager.onAllModelsReady = () => this.onAiModelsReady();
+    }
 
     this.onStartGame = null;
     this.onRestartGame = null;
@@ -63,7 +67,8 @@ export class HUD {
       selectedStage: this._selectedDebugStage,
       selectedSpeed: this._selectedDebugSpeed,
       settings: this._settings,
-      currentTrackTitle: this.soundFx?.currentTrackTitle || 'Bgm'
+      currentTrackTitle: this.soundFx?.currentTrackTitle || 'Bgm',
+      isAiReady: !!this.visionManager?.modelsReady
     });
   }
 
@@ -694,6 +699,45 @@ export class HUD {
     if (!this.elWebcamPip) return;
     if (show) this.elWebcamPip.classList.remove('hidden');
     else      this.elWebcamPip.classList.add('hidden');
+  }
+
+  updateAiPreloadProgress(progress, stage) {
+    const elText = document.getElementById('menu-ai-text');
+    const elIndicator = document.getElementById('menu-ai-indicator');
+    const pct = Math.round((progress || 0) * 100);
+
+    if (elText) {
+      elText.textContent = `${this._t('menu.ai_loading')} (${pct}%)`;
+    }
+    if (elIndicator) {
+      elIndicator.style.background = '#ffd700';
+      elIndicator.style.boxShadow = '0 0 8px #ffd700';
+    }
+
+    if (this.elWebcamPip && !this.elWebcamPip.classList.contains('hidden')) {
+      const activeMode = this.visionManager?.activeMode;
+      if (this.visionManager && !this.visionManager.isModelReadyForMode(activeMode)) {
+        this.setWebcamStatus(`${this._t('hud.cam.loading_models')} (${pct}%)`, '#ffd700');
+      }
+    }
+  }
+
+  onAiModelsReady() {
+    const elText = document.getElementById('menu-ai-text');
+    const elIndicator = document.getElementById('menu-ai-indicator');
+
+    if (elText) {
+      elText.textContent = this._t('menu.ai_ready');
+      elText.style.color = 'rgba(0, 255, 136, 0.9)';
+    }
+    if (elIndicator) {
+      elIndicator.style.background = '#00ff88';
+      elIndicator.style.boxShadow = '0 0 10px #00ff88';
+    }
+
+    if (this.elWebcamPip && !this.elWebcamPip.classList.contains('hidden')) {
+      this.setWebcamStatus(this._t('hud.cam.active'), '#00e5ff');
+    }
   }
 
   _isTouch() {

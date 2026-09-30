@@ -34,6 +34,18 @@ export default defineConfig({
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify(files));
         });
+        server.middlewares.use((req, res, next) => {
+          if (req.url && req.url.includes('/models/')) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            res.setHeader('Content-Type', 'application/octet-stream');
+          } else if (req.url && req.url.includes('/wasm/')) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            if (req.url.endsWith('.wasm')) {
+              res.setHeader('Content-Type', 'application/wasm');
+            }
+          }
+          next();
+        });
       }
     },
     {

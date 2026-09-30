@@ -152,7 +152,10 @@ function resetCalibration() {
   hzHyst   = { col: 'C', row: 'mid' };
 }
 
+let _customRootUrl = null;
+
 function getRootUrl() {
+  if (_customRootUrl) return _customRootUrl;
   if (typeof location === 'undefined') return '';
   const origin = location.origin || '';
   const pathname = location.pathname.replace(/\/assets\/.*$/, '').replace(/\/src\/.*$/, '').replace(/\/$/, '');
@@ -302,74 +305,148 @@ async function initVision() {
 }
 
 // ---------------------------------------------------------------------------
-// On-demand model loading
+// Eager model loading & caching
 // ---------------------------------------------------------------------------
+let faceLandmarkerPromise = null;
+let handLandmarkerPromise = null;
+let poseLandmarkerPromise = null;
+let preloadAllPromise = null;
+
+async function loadFaceModel() {
+  if (faceLandmarker) return faceLandmarker;
+  if (faceLandmarkerPromise) return faceLandmarkerPromise;
+
+  faceLandmarkerPromise = (async () => {
+    await initVision();
+    const rootUrl = getRootUrl();
+    try {
+      faceLandmarker = await createModel(
+        FaceLandmarker, visionTasks,
+        `${rootUrl}/models/face_landmarker.task`,
+        'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        {
+          runningMode: 'VIDEO',
+          numFaces: 1,
+          outputFaceBlendshapes: false,
+          outputFacialTransformationMatrixes: false,
+          minFaceDetectionConfidence: 0.5,
+          minFacePresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5
+        }
+      );
+      self.postMessage({ type: 'model_ready', mode: 'face', delegate: faceLandmarker._delegate, src: faceLandmarker._src });
+      return faceLandmarker;
+    } catch (faceErr) {
+      console.warn('[VisionWorker] Failed to load faceLandmarker:', faceErr);
+      faceLandmarkerPromise = null;
+      throw faceErr;
+    }
+  })();
+
+  return faceLandmarkerPromise;
+}
+
+async function loadHandModel() {
+  if (handLandmarker) return handLandmarker;
+  if (handLandmarkerPromise) return handLandmarkerPromise;
+
+  handLandmarkerPromise = (async () => {
+    await initVision();
+    const rootUrl = getRootUrl();
+    try {
+      handLandmarker = await createModel(
+        HandLandmarker, visionTasks,
+        `${rootUrl}/models/hand_landmarker.task`,
+        'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+        {
+          runningMode: 'VIDEO',
+          numHands: 1,
+          minHandDetectionConfidence: 0.5,
+          minHandPresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5
+        }
+      );
+      self.postMessage({ type: 'model_ready', mode: 'hands', delegate: handLandmarker._delegate, src: handLandmarker._src });
+      return handLandmarker;
+    } catch (handErr) {
+      console.warn('[VisionWorker] Failed to load handLandmarker:', handErr);
+      handLandmarkerPromise = null;
+      throw handErr;
+    }
+  })();
+
+  return handLandmarkerPromise;
+}
+
+async function loadPoseModel() {
+  if (poseLandmarker) return poseLandmarker;
+  if (poseLandmarkerPromise) return poseLandmarkerPromise;
+
+  poseLandmarkerPromise = (async () => {
+    await initVision();
+    const rootUrl = getRootUrl();
+    try {
+      poseLandmarker = await createModel(
+        PoseLandmarker, visionTasks,
+        `${rootUrl}/models/pose_landmarker_lite.task`,
+        'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+        { runningMode: 'VIDEO', numPoses: 1 }
+      );
+      self.postMessage({ type: 'model_ready', mode: 'pose' });
+      return poseLandmarker;
+    } catch (poseErr) {
+      console.warn('[VisionWorker] Failed to load poseLandmarker:', poseErr);
+      poseLandmarkerPromise = null;
+      throw poseErr;
+    }
+  })();
+
+  return poseLandmarkerPromise;
+}
+
+/**
+ * Preloads all essential models (face + hands) proactively in the background.
+ * Dispatches progress events so UI can reflect live download state.
+ */
+async function preloadAllModels() {
+  if (preloadAllPromise) return preloadAllPromise;
+
+  preloadAllPromise = (async () => {
+    try {
+      self.postMessage({ type: 'preload_progress', stage: 'wasm', progress: 0.15 });
+      await initVision();
+      self.postMessage({ type: 'preload_progress', stage: 'face', progress: 0.35 });
+
+      await loadFaceModel();
+      self.postMessage({ type: 'preload_progress', stage: 'hands', progress: 0.70 });
+
+      await loadHandModel();
+      self.postMessage({ type: 'preload_progress', stage: 'complete', progress: 1.0 });
+      self.postMessage({ type: 'preload_done' });
+    } catch (err) {
+      console.warn('[VisionWorker] Preload all models error:', err);
+    }
+  })();
+
+  return preloadAllPromise;
+}
+
 async function ensureModel(mode) {
   try {
-    if (!visionTasks) await initVision();
-    if (!visionTasks) return;
-
     currentMode = mode;
     resetCalibration();
 
-    const rootUrl = getRootUrl();
-
-    // Face model — needed for 'face', 'zone'
-    if ((mode === 'face' || mode === 'zone') && !faceLandmarker) {
-      try {
-        faceLandmarker = await createModel(
-          FaceLandmarker, visionTasks,
-          `${rootUrl}/models/face_landmarker.task`,
-          'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-          {
-            runningMode: 'VIDEO',
-            numFaces: 1,
-            outputFaceBlendshapes: false,
-            outputFacialTransformationMatrixes: false,
-            minFaceDetectionConfidence: 0.5,
-            minFacePresenceConfidence: 0.5,
-            minTrackingConfidence: 0.5
-          }
-        );
-        self.postMessage({ type: 'model_ready', mode: 'face', delegate: faceLandmarker._delegate, src: faceLandmarker._src });
-      } catch (faceErr) {
-        console.warn('[VisionWorker] Failed to load faceLandmarker:', faceErr);
+    if (mode === 'face' || mode === 'zone') {
+      if (!faceLandmarker) {
+        await loadFaceModel();
       }
-    }
-
-    // Hand model — needed for 'hands', 'handzone', 'fingergesture', 'handswipe'
-    if ((mode === 'hands' || mode === 'handzone' || mode === 'fingergesture' || mode === 'handswipe') && !handLandmarker) {
-      try {
-        handLandmarker = await createModel(
-          HandLandmarker, visionTasks,
-          `${rootUrl}/models/hand_landmarker.task`,
-          'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-          {
-            runningMode: 'VIDEO',
-            numHands: 1,
-            minHandDetectionConfidence: 0.5,
-            minHandPresenceConfidence: 0.5,
-            minTrackingConfidence: 0.5
-          }
-        );
-        self.postMessage({ type: 'model_ready', mode: 'hands', delegate: handLandmarker._delegate, src: handLandmarker._src });
-      } catch (handErr) {
-        console.warn('[VisionWorker] Failed to load handLandmarker:', handErr);
+    } else if (mode === 'hands' || mode === 'handzone' || mode === 'fingergesture' || mode === 'handswipe') {
+      if (!handLandmarker) {
+        await loadHandModel();
       }
-    }
-
-    // Pose model — legacy support for 'pose' and 'mix'
-    if ((mode === 'pose' || mode === 'mix') && !poseLandmarker) {
-      try {
-        poseLandmarker = await createModel(
-          PoseLandmarker, visionTasks,
-          `${rootUrl}/models/pose_landmarker_lite.task`,
-          'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
-          { runningMode: 'VIDEO', numPoses: 1 }
-        );
-        self.postMessage({ type: 'model_ready', mode: 'pose' });
-      } catch (poseErr) {
-        console.warn('[VisionWorker] Failed to load poseLandmarker:', poseErr);
+    } else if (mode === 'pose' || mode === 'mix') {
+      if (!poseLandmarker) {
+        await loadPoseModel();
       }
     }
   } catch (e) {
@@ -384,19 +461,13 @@ self.onmessage = async (e) => {
   try {
     const data = e.data;
 
-    if (data.type === 'init') {
-      await initVision();
-      return;
+    if (data.rootUrl) {
+      _customRootUrl = data.rootUrl;
     }
 
-    // Silent background preload — loads face + hand models without activating a mode.
-    // Triggered from the main thread while the menu is on screen so Stage 2+ starts
-    // without the loading delay that would otherwise interrupt gameplay.
-    if (data.type === 'preload') {
-      await initVision();
-      await ensureModel('zone');     // loads face model
-      await ensureModel('handzone'); // loads hand model
-      self.postMessage({ type: 'preload_done' });
+    if (data.type === 'init' || data.type === 'preload') {
+      // Eagerly preload all models immediately!
+      await preloadAllModels();
       return;
     }
 

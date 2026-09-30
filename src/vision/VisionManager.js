@@ -70,6 +70,13 @@ export class VisionManager {
     this._camFpsTimer = performance.now();
     this._cvFrameCount = 0;
     this._cvFpsTimer = performance.now();
+    this.modelsReady = false;
+    this.faceModelReady = false;
+    this.handsModelReady = false;
+    this.preloadProgress = 0;
+    this.onPreloadProgress = null; // callback(progress, stage)
+    this.onAllModelsReady = null;  // callback()
+    this.onModelReady = null;      // callback(mode)
     this.onFpsUpdate = null;          // callback(cvFps, frametime, camFps)
     this.onSettingsCalibrated = null; // callback(settings)
 
@@ -108,21 +115,53 @@ export class VisionManager {
   }
 
   /**
-   * Starts the Web Worker early (without requesting camera access) and queues
-   * a background preload of the MediaPipe face + hand models.
-   * Call this while the main menu is showing so that Stage 2+ begins
-   * instantly when the player first reaches it.
+   * Starts the Web Worker early and queues an immediate, eager
+   * preload of all MediaPipe models (face + hands) while pre-warming the HTTP cache.
    */
   preloadModels() {
+    this._prefetchAssets();
     if (!this.worker) {
       this._initWorker();
     }
+    const rootUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname.replace(/\/$/, '')}` : '';
     if (this._workerReady) {
-      this.worker.postMessage({ type: 'preload' });
+      this.worker.postMessage({ type: 'preload', rootUrl });
     } else {
       // Worker not ready yet — flag it; the 'ready' handler will dispatch the request
       this._pendingPreload = true;
     }
+  }
+
+  /**
+   * Proactively warms the browser's HTTP cache with model binaries and Wasm.
+   */
+  _prefetchAssets() {
+    if (typeof window === 'undefined' || !window.fetch) return;
+    try {
+      const origin = window.location.origin || '';
+      const pathname = (window.location.pathname || '').replace(/\/$/, '');
+      const rootUrl = `${origin}${pathname}`;
+      const urls = [
+        `${rootUrl}/models/face_landmarker.task`,
+        `${rootUrl}/models/hand_landmarker.task`,
+        `${rootUrl}/wasm/vision_wasm_internal.wasm`
+      ];
+      for (const url of urls) {
+        fetch(url, { cache: 'force-cache' }).catch(() => {});
+      }
+    } catch {
+      // Non-critical prefetch fallback
+    }
+  }
+
+  /**
+   * Checks if the required AI model for a given CV mode is loaded and ready.
+   */
+  isModelReadyForMode(mode) {
+    if (!mode) return true;
+    if (mode === 'face' || mode === 'zone') return !!this.faceModelReady;
+    if (mode === 'hands' || mode === 'handzone' || mode === 'fingergesture' || mode === 'handswipe') return !!this.handsModelReady;
+    return true;
   }
 
   setPreviewCanvas(previewCanvas) {
@@ -289,21 +328,43 @@ export class VisionManager {
         if (msg.type === 'ready') {
           this._workerReady = true;
           console.log('[VisionManager] Web Worker ready!');
+          const rootUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname.replace(/\/$/, '')}` : '';
+
           // Deliver pending video size if camera was already initialised
           if (this._pendingVideoSize) {
             this.worker.postMessage({ type: 'setVideoSize', ...this._pendingVideoSize });
             this._pendingVideoSize = null;
           }
+
+          // Always ensure worker preloads all models upfront!
+          this.worker.postMessage({ type: 'preload', rootUrl });
+          this._pendingPreload = false;
+
           if (this.activeMode) {
-            this.worker.postMessage({ type: 'setMode', mode: this.activeMode });
-          } else if (this._pendingPreload) {
-            this.worker.postMessage({ type: 'preload' });
-            this._pendingPreload = false;
+            this.worker.postMessage({ type: 'setMode', mode: this.activeMode, rootUrl });
           }
         } else if (msg.type === 'model_ready') {
           console.log(`[VisionManager] Model ${msg.mode} ready in worker (delegate: ${msg.delegate || 'unknown'}, src: ${msg.src || 'unknown'})`);
+          if (msg.mode === 'face') this.faceModelReady = true;
+          if (msg.mode === 'hands') this.handsModelReady = true;
+          if (this.onModelReady) this.onModelReady(msg.mode);
+        } else if (msg.type === 'preload_progress') {
+          this.preloadProgress = msg.progress || 0;
+          if (this.onPreloadProgress) {
+            this.onPreloadProgress(this.preloadProgress, msg.stage);
+          }
         } else if (msg.type === 'preload_done') {
-          console.log('[VisionManager] Background model preload complete — CV stages will start instantly');
+          console.log('[VisionManager] Background model preload complete — all CV stages ready');
+          this.modelsReady = true;
+          this.faceModelReady = true;
+          this.handsModelReady = true;
+          this.preloadProgress = 1.0;
+          if (this.onPreloadProgress) {
+            this.onPreloadProgress(1.0, 'complete');
+          }
+          if (this.onAllModelsReady) {
+            this.onAllModelsReady();
+          }
         } else if (msg.type === 'processed') {
           this._workerBusy = false;
           if (msg.state) {
@@ -339,7 +400,8 @@ export class VisionManager {
         console.warn('[VisionManager] Worker onerror:', err);
       };
 
-      this.worker.postMessage({ type: 'init' });
+      const rootUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname.replace(/\/$/, '')}` : '';
+      this.worker.postMessage({ type: 'init', rootUrl });
     } catch (err) {
       console.warn('[VisionManager] Error creating Web Worker:', err);
     }
@@ -348,7 +410,8 @@ export class VisionManager {
   setMode(mode) {
     this.activeMode = mode;
     if (this.worker) {
-      this.worker.postMessage({ type: 'setMode', mode });
+      const rootUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname.replace(/\/$/, '')}` : '';
+      this.worker.postMessage({ type: 'setMode', mode, rootUrl });
     }
     // Kick off dispatch immediately when new mode is activated
     if (this._loopRunning && this._workerReady && !this._workerBusy) {
@@ -640,6 +703,24 @@ export class VisionManager {
       for (const p of pts) {
         this._drawPoint(p.x, p.y, p.color || '#00e5ff', p.r || 4);
       }
+    }
+
+    // If active model is not loaded yet, render gentle loading overlay in PIP
+    if (!this.isModelReadyForMode(this.activeMode)) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(8, 13, 26, 0.78)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#ffd700';
+      ctx.font = 'bold 11px Outfit, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const pct = Math.round((this.preloadProgress || 0) * 100);
+      const text = pct > 0 && pct < 100 ? `⚡ LOADING AI MODELS (${pct}%)...` : '⚡ PREPARING AI MODEL...';
+      ctx.fillText(text, W / 2, H / 2 - 6);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.font = '9px Outfit, sans-serif';
+      ctx.fillText('Ready soon', W / 2, H / 2 + 10);
+      ctx.restore();
     }
 
     // Status badge (gesture / action text)
