@@ -1383,4 +1383,78 @@ body:has(#touch-dpad) #game-container.frame-mobile #hud-bottom-left {
   box-shadow: 0 0 16px rgba(255, 107, 53, 1), 0 0 30px rgba(255, 107, 53, 0.7);
 }
 
+/* =============================================
+   Touch Virtual D-Pad (Touch Devices)
+   ============================================= */
+#touch-dpad {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 160px;
+  z-index: 50;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#dpad-left-group {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+#dpad-right-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.dpad-btn {
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  color: var(--accent);
+  font-weight: 900;
+  pointer-events: all;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 16px rgba(0, 229, 255, 0.35);
+  transition: background 0.1s, transform 0.08s;
+  -webkit-tap-highlight-color: transparent;
+  width: 64px;
+  height: 64px;
+  font-size: 24px;
+}
+
+.dpad-btn:active,
+.dpad-btn.active {
+  transform: scale(0.88);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.dpad-btn-slide {
+  width: 56px;
+  height: 56px;
+  font-size: 21px;
+  border-color: var(--accent2);
+  color: var(--accent2);
+  box-shadow: 0 0 16px rgba(255, 107, 53, 0.35);
+}
+
+.dpad-btn-jump {
+  width: 72px;
+  height: 72px;
+  font-size: 27px;
+}
+
+
 
