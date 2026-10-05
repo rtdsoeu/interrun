@@ -717,13 +717,6 @@ export class HUD {
         if (isLowLight) this.elLowLightBadge.classList.remove('hidden');
         else this.elLowLightBadge.classList.add('hidden');
       }
-
-      // Soft ambient screen fill light in dark conditions (< 14 FPS) to assist camera sensor
-      const container = typeof document !== 'undefined' ? document.getElementById('game-container') : null;
-      if (container) {
-        if (camFps <= 13) container.classList.add('low-light-glow');
-        else if (camFps >= 17) container.classList.remove('low-light-glow');
-      }
     }
   }
 

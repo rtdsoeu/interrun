@@ -1078,6 +1078,94 @@ function processFingerGesture(bitmap, timestamp) {
 // - Complete trail flush on swipe commit.
 // - Increments monotonic hsSwipeCounter for single-event consumption on the main thread.
 // ---------------------------------------------------------------------------
+/**
+ * Overhauled Anti-Recoil and Gesture Validation.
+ * Uses Centripetal Spatial Gating + Minimal Refractory Period instead of naive blind timeouts:
+ *
+ * 1. Centripetal Spatial Gating:
+ *    - After a swipe in direction D, the hand naturally returns towards the neutral center.
+ *    - Moving toward the center from an outer quadrant is physically RECOIL / RETURN.
+ *    - Example: After swiping RIGHT (hand at x > 0.65), returning the hand to center
+ *      (moving left through 0.80 -> 0.50) is STRICTLY BLOCKED from triggering 'left' because
+ *      the hand is still in the right/center zone (x >= 0.44).
+ *    - An opposite swipe is ONLY permitted if the hand genuinely sweeps across into the opposite
+ *      quadrant (x < 0.40 for left, x > 0.60 for right, y < 0.34 for jump, y > 0.66 for duck)
+ *      AND a minimal physical turnaround time (>= 150ms) has elapsed.
+ *
+ * 2. Neutral Reset:
+ *    - When the hand rests in the neutral center box (0.42 <= x <= 0.58, 0.38 <= y <= 0.62)
+ *      for >= 150ms, prior swipe lockouts are cleared, restoring full omnidirectional freedom.
+ */
+function isSwipePermitted(detectedSwipe, handPos, timestamp) {
+  if (!detectedSwipe) return false;
+
+  const timeSinceLast = timestamp - hsLastSwipeTime;
+
+  // Global minimum turnaround time between any two swipes (mechanical bounce guard)
+  if (timeSinceLast < 130) {
+    return false;
+  }
+
+  const isOpposite =
+    (hsLastSwipe === 'left'  && detectedSwipe === 'right') ||
+    (hsLastSwipe === 'right' && detectedSwipe === 'left')  ||
+    (hsLastSwipe === 'up'    && detectedSwipe === 'down')  ||
+    (hsLastSwipe === 'down'  && detectedSwipe === 'up');
+
+  const isSame = (hsLastSwipe === detectedSwipe);
+
+  // 1. OPPOSITE SWIPE VALIDATION (Spatial Centripetal Anti-Recoil)
+  if (isOpposite) {
+    if (handPos) {
+      // Right -> Left recoil check
+      if (hsLastSwipe === 'right' && detectedSwipe === 'left') {
+        // Hand is still in right or center half: this is pure recoil return!
+        if (handPos.x >= 0.44) return false;
+      }
+      // Left -> Right recoil check
+      else if (hsLastSwipe === 'left' && detectedSwipe === 'right') {
+        // Hand is still in left or center half: pure recoil return!
+        if (handPos.x <= 0.56) return false;
+      }
+      // Up -> Down recoil check (Jump -> Fallback to center)
+      else if (hsLastSwipe === 'up' && detectedSwipe === 'down') {
+        // Hand is still in upper or middle area: return from jump!
+        if (handPos.y <= 0.62) return false;
+      }
+      // Down -> Up recoil check (Slide -> Rise back to center)
+      else if (hsLastSwipe === 'down' && detectedSwipe === 'up') {
+        // Hand is still in lower or middle area: return from slide!
+        if (handPos.y >= 0.38) return false;
+      }
+    }
+
+    // Minimum turnaround lockout for genuine cross-screen counter-swipes (e.g. right all the way to left)
+    const minTurnaround = isUltraLowFps ? Math.max(160, hsAvgFrameInterval * 1.5)
+                        : isLowFps      ? Math.max(150, hsAvgFrameInterval * 1.5)
+                        : 160;
+    if (timeSinceLast < minTurnaround) return false;
+  }
+  // 2. SAME DIRECTION SWIPE (Double-Swipe in same direction)
+  else if (isSame) {
+    const sameCooldown = isUltraLowFps ? Math.max(180, hsAvgFrameInterval * 1.6)
+                       : isLowFps      ? Math.max(170, hsAvgFrameInterval * 1.6)
+                       : 180;
+    if (timeSinceLast < sameCooldown) return false;
+  }
+  // 3. ORTHOGONAL COMBO (e.g. Left -> Jump, Right -> Slide)
+  else {
+    const orthoCooldown = isUltraLowFps ? Math.max(130, hsAvgFrameInterval * 1.3)
+                        : isLowFps      ? Math.max(120, hsAvgFrameInterval * 1.3)
+                        : 140;
+    if (timeSinceLast < orthoCooldown) return false;
+  }
+
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// HandSwipe (Stage 5) — Process Hand Swipe
+// ---------------------------------------------------------------------------
 function processHandSwipe(bitmap, timestamp) {
   const state = baseState();
 
@@ -1136,29 +1224,7 @@ function processHandSwipe(bitmap, timestamp) {
     }
 
     if (detectedSwipe) {
-      const timeSinceLast = timestamp - hsLastSwipeTime;
-      const isOpposite =
-        (hsLastSwipe === 'left'  && detectedSwipe === 'right') ||
-        (hsLastSwipe === 'right' && detectedSwipe === 'left')  ||
-        (hsLastSwipe === 'up'    && detectedSwipe === 'down')  ||
-        (hsLastSwipe === 'down'  && detectedSwipe === 'up');
-
-      const isSame = (hsLastSwipe === detectedSwipe);
-      const oppositeLockout = isUltraLowFps ? Math.max(340, hsAvgFrameInterval * 2.8)
-                            : isLowFps      ? Math.max(300, hsAvgFrameInterval * 3.0)
-                            : 380;
-      const sameCooldown    = isUltraLowFps ? Math.max(190, hsAvgFrameInterval * 1.8)
-                            : isLowFps      ? Math.max(180, hsAvgFrameInterval * 1.8)
-                            : 200;
-      const orthoCooldown   = isUltraLowFps ? Math.max(160, hsAvgFrameInterval * 1.5)
-                            : isLowFps      ? Math.max(150, hsAvgFrameInterval * 1.5)
-                            : 170;
-
-      const isAllowed = isOpposite ? (timeSinceLast >= oppositeLockout)
-                      : isSame     ? (timeSinceLast >= sameCooldown)
-                                   : (timeSinceLast >= orthoCooldown);
-
-      if (isAllowed) {
+      if (isSwipePermitted(detectedSwipe, hsLastKnownPos, timestamp)) {
         hsSwipeCounter++;
         hsLastSwipe = detectedSwipe;
         hsLastSwipeTime = timestamp;
@@ -1205,6 +1271,13 @@ function processHandSwipe(bitmap, timestamp) {
 
   state.hsSource  = 'hand';
   state.hsHandPos = { x: handX, y: handY };
+
+  // Neutral center reset: once hand rests in or crosses the neutral box, clear prior swipe direction
+  if (handX >= 0.42 && handX <= 0.58 && handY >= 0.38 && handY <= 0.62) {
+    if (timestamp - hsLastSwipeTime >= 150) {
+      hsLastSwipe = null;
+    }
+  }
 
   // Outlier rejection: if hand jumped excessively fast across the frame, ignore glitch
   const lastPoint = hsTrail.length > 0 ? hsTrail[hsTrail.length - 1] : null;
@@ -1298,39 +1371,11 @@ function processHandSwipe(bitmap, timestamp) {
   }
 
   // ---------------------------------------------------------------------------
-  // SWIPE VALIDATION (Cooldowns and Anti-Recoil Lockout)
+  // SWIPE VALIDATION (Overhauled Anti-Recoil and Cooldowns)
   // ---------------------------------------------------------------------------
   if (detectedSwipe) {
-    const timeSinceLast = timestamp - hsLastSwipeTime;
-    let isAllowed = false;
-
-    const isOpposite =
-      (hsLastSwipe === 'left'  && detectedSwipe === 'right') ||
-      (hsLastSwipe === 'right' && detectedSwipe === 'left')  ||
-      (hsLastSwipe === 'up'    && detectedSwipe === 'down')  ||
-      (hsLastSwipe === 'down'  && detectedSwipe === 'up');
-
-    const isSame = (hsLastSwipe === detectedSwipe);
-
-    const oppositeLockout = isUltraLowFps ? Math.max(340, hsAvgFrameInterval * 2.8)
-                          : isLowFps      ? Math.max(300, hsAvgFrameInterval * 3.0)
-                          : 380;
-    const sameCooldown    = isUltraLowFps ? Math.max(190, hsAvgFrameInterval * 1.8)
-                          : isLowFps      ? Math.max(180, hsAvgFrameInterval * 1.8)
-                          : 200;
-    const orthoCooldown   = isUltraLowFps ? Math.max(160, hsAvgFrameInterval * 1.5)
-                          : isLowFps      ? Math.max(150, hsAvgFrameInterval * 1.5)
-                          : 170;
-
-    if (isOpposite) {
-      isAllowed = timeSinceLast >= oppositeLockout;
-    } else if (isSame) {
-      isAllowed = timeSinceLast >= sameCooldown;
-    } else {
-      isAllowed = timeSinceLast >= orthoCooldown;
-    }
-
-    if (isAllowed) {
+    const currentPos = { x: handX, y: handY };
+    if (isSwipePermitted(detectedSwipe, currentPos, timestamp)) {
       hsSwipeCounter++;
       hsLastSwipe = detectedSwipe;
       hsLastSwipeTime = timestamp;
