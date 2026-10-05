@@ -136,4 +136,27 @@ describe('Runner Physics, Lane Clamping, and Hitbox Math', () => {
     expect(runner.pos.y).toBe(0);
     expect(runner.yVelocity).toBe(0);
   });
+
+  it('maintains SLIDING state continuously while isDucking is held without premature standing or cooldown lockout', () => {
+    // Initial duck hold
+    runner.handleInput({ laneDelta: 0, jump: false, slide: false, isDucking: true });
+    expect(runner.state).toBe(PlayerState.SLIDING);
+    expect(runner.slideTimer).toBe(runner.slideDuration);
+
+    // Simulate 2 seconds of continuous duck hold (far exceeds the 0.75s slideDuration)
+    for (let i = 0; i < 40; i++) {
+      runner.update(0.05, 10);
+      runner.handleInput({ laneDelta: 0, jump: false, slide: false, isDucking: true });
+      expect(runner.state).toBe(PlayerState.SLIDING);
+      expect(runner.slideCooldown).toBe(0);
+    }
+
+    // Release duck hold
+    runner.handleInput({ laneDelta: 0, jump: false, slide: false, isDucking: false });
+    // Should now finish remaining slideTimer and smoothly transition back to RUNNING
+    for (let i = 0; i < 20; i++) {
+      runner.update(0.05, 10);
+    }
+    expect(runner.state).toBe(PlayerState.RUNNING);
+  });
 });
