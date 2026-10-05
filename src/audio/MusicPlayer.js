@@ -49,9 +49,6 @@ export class MusicPlayer {
     this._audio = null;
     this._initAudio();
 
-    // Auto-bind one-time interaction unlock listeners
-    this._bindUnlockListeners();
-
     // Asynchronously discover all audio files in public/audio/
     this.refreshPlaylist();
   }
@@ -145,21 +142,6 @@ export class MusicPlayer {
     } catch (_) {
       // Offline or manifest unavailable — continue with default track
     }
-  }
-
-  _bindUnlockListeners() {
-    if (typeof window === 'undefined') return;
-    const onInteract = () => {
-      this.unlock();
-      window.removeEventListener('pointerdown', onInteract);
-      window.removeEventListener('keydown',     onInteract);
-      window.removeEventListener('touchstart',  onInteract);
-      window.removeEventListener('click',      onInteract);
-    };
-    window.addEventListener('pointerdown', onInteract, { passive: true, capture: true });
-    window.addEventListener('keydown',     onInteract, { passive: true, capture: true });
-    window.addEventListener('touchstart',  onInteract, { passive: true, capture: true });
-    window.addEventListener('click',      onInteract, { passive: true, capture: true });
   }
 
   unlock() {

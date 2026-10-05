@@ -25,11 +25,14 @@ export const STAGE_BASE_SPEEDS = [
 export const STAGE_THRESHOLDS = [0, 300, 650, 950, 1250, 1850];
 export const STAGE_CYCLE_LENGTH = 2250; // Total meters per full 6-stage loop (Stage 0: 300m, Stage 1: 350m, Stage 2: 300m, Stage 3: 300m, Stage 4: 600m, Stage 5: 400m)
 export const CYCLE_SPEED_INCREMENT = 2.0; // +2.0 m/s added to all stage speeds each time we loop back to Stage 0
+// MAX_STAGE derived from thresholds so adding a new stage never requires touching two places
+export const MAX_STAGE = STAGE_THRESHOLDS.length - 1;
 
 export class ScoreSystem {
   constructor() {
     this.distance    = 0;   // meters
     this.stage       = 0;
+    this.lockedStage = null; // null = free progression, number = debug stage lock
     const savedBest = typeof localStorage !== 'undefined' ? localStorage.getItem('interrun_best') : null;
     this.bestScore   = parseInt(savedBest || '0', 10);
     this._alive      = false;
@@ -47,7 +50,7 @@ export class ScoreSystem {
 
     // Stage thresholds (cumulative distance within one cycle)
     this.STAGE_THRESHOLDS = STAGE_THRESHOLDS;
-    this.MAX_STAGE     = 5;
+    this.MAX_STAGE        = MAX_STAGE; // derived from STAGE_THRESHOLDS.length - 1
 
     this.onStageChange = null; // callback(newStage)
   }

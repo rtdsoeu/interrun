@@ -32,7 +32,7 @@ export class VisionManager {
     this.stream = null;
     this.isReady = false;
     this.hasPermission = false;
-    this.activeMode = null; // 'face' | 'hands' | 'pose' | 'mix' | 'zone'
+    this.activeMode = null; // 'zone' | 'handzone' | 'fingergesture' | 'handswipe'
 
     // CV Quality & Performance settings
     const savedRes = (typeof localStorage !== 'undefined') ? (localStorage.getItem('interrun_cv_res') || 'balanced') : 'balanced';
@@ -100,15 +100,6 @@ export class VisionManager {
 
     // Recognition state (thread-safe O(1) read by game engine)
     this.currentState = {
-      // Legacy fields for HeadControl / HandControl / PoseControl / MixControl
-      headRoll: 0,
-      headPitch: 0,
-      handX: 0,
-      handSwipeUp: false,
-      handSwipeDown: false,
-      bodyLeanX: 0,
-      isSquatting: false,
-      isJumping: false,
       // ZoneControl fields (Stage 2)
       zoneCol: 'C',       // 'L' | 'C' | 'R'
       zoneRow: 'mid',     // 'top' | 'mid' | 'bot'

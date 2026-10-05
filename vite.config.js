@@ -25,14 +25,24 @@ function createMediaPipePatchPlugin() {
     transform(code, id) {
       if (id.includes('@mediapipe') || id.includes('vision_bundle')) {
         let patched = code.replace(/\/\/# sourceMappingURL=.*/g, '');
+
         // 1. Bypass MediaPipe's broken Safari version check that causes fallback to document.createElement("canvas") in workers
         const safariCheck = '!function(t=navigator){return(t=t.userAgent).includes("Safari")&&!t.includes("Chrome")}(t)||!!((t=t.userAgent.match(/Version\\/([\\d]+).*Safari/))&&t.length>=1&&Number(t[1])>=17)';
-        patched = patched.replace(safariCheck, 'true');
+        if (code.includes(safariCheck)) {
+          patched = patched.replace(safariCheck, 'true');
+        } else {
+          // Target string not found — @mediapipe/tasks-vision may have been updated; verify patch is still needed
+          console.warn('[MediaPipe patch] Safari check string not found — patch may be outdated or already fixed upstream.');
+        }
 
         // 2. Prevent $h loader from attempting document.createElement("script") inside Web Worker scope
         const scriptLoader = 'if("function"!=typeof importScripts){let e=document.createElement("script");';
         const safeScriptLoader = 'if("function"!=typeof importScripts && typeof document!=="undefined"){let e=document.createElement("script");';
-        patched = patched.replace(scriptLoader, safeScriptLoader);
+        if (code.includes(scriptLoader)) {
+          patched = patched.replace(scriptLoader, safeScriptLoader);
+        } else {
+          console.warn('[MediaPipe patch] Script loader string not found — patch may be outdated or already fixed upstream.');
+        }
 
         return {
           code: patched,

@@ -153,8 +153,4 @@ export class HandSwipeControl extends BaseControl {
         break;
     }
   }
-
-  consume() {
-    return super.consume();
-  }
 }
