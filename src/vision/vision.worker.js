@@ -1095,28 +1095,42 @@ function processHandSwipe(bitmap, timestamp) {
   }
   hsPrevFrameTime = timestamp;
 
-  // Frame interval >= 48ms indicates <= 21 FPS (low-light auto-exposure mode)
+  // Frame interval classification:
+  // >= 48ms indicates <= 21 FPS (low-light auto-exposure mode)
   const isLowFps = hsAvgFrameInterval >= 48;
+  // >= 80ms indicates <= 12.5 FPS (severe low-light auto-exposure mode, e.g. 7-10 FPS)
+  const isUltraLowFps = hsAvgFrameInterval >= 80;
 
   const results = handLandmarker.detectForVideo(bitmap, timestamp);
 
   // ---------------------------------------------------------------------------
-  // HAND LOST BRANCH — Handle Exit Flicks and trail cleanup
+  // HAND LOST BRANCH — Handle Exit Flicks, Motion Blur Dropout, and trail cleanup
   // ---------------------------------------------------------------------------
   if (!(results?.landmarks?.length > 0)) {
     let detectedSwipe = null;
 
-    // EXIT FLICK: If hand was moving rapidly towards an edge and vanished in the next
-    // frame due to motion blur or leaving the camera frame, trigger the completed swipe.
-    if (hsLastKnownPos && (timestamp - hsLastKnownPos.time) <= Math.max(260, hsAvgFrameInterval * 2.5)) {
+    // EXIT FLICK & MOTION BLUR DROPOUT:
+    // If hand was moving rapidly or near an edge and vanished in the next
+    // frame due to motion blur, trigger the completed swipe.
+    const maxLostWindow = Math.max(300, hsAvgFrameInterval * 2.8);
+    if (hsLastKnownPos && (timestamp - hsLastKnownPos.time) <= maxLostWindow) {
       const p = hsLastKnownPos;
-      if (p.vx < -0.32 || (p.x < 0.32 && p.vx < -0.10)) {
+      const minExitVx = isUltraLowFps ? 0.18 : isLowFps ? 0.26 : 0.32;
+      const minExitVy = isUltraLowFps ? 0.16 : isLowFps ? 0.24 : 0.32;
+      const minEdgeVx = isUltraLowFps ? 0.05 : isLowFps ? 0.08 : 0.10;
+      const minEdgeVy = isUltraLowFps ? 0.05 : isLowFps ? 0.08 : 0.10;
+      const edgeLeft  = isUltraLowFps ? 0.38 : 0.32;
+      const edgeRight = isUltraLowFps ? 0.62 : 0.68;
+      const edgeTop   = isUltraLowFps ? 0.36 : 0.30;
+      const edgeBot   = isUltraLowFps ? 0.64 : 0.70;
+
+      if (p.vx < -minExitVx || (p.x < edgeLeft && p.vx < -minEdgeVx)) {
         detectedSwipe = 'left';
-      } else if (p.vx > 0.32 || (p.x > 0.68 && p.vx > 0.10)) {
+      } else if (p.vx > minExitVx || (p.x > edgeRight && p.vx > minEdgeVx)) {
         detectedSwipe = 'right';
-      } else if (p.vy < -0.32 || (p.y < 0.30 && p.vy < -0.10)) {
+      } else if (p.vy < -minExitVy || (p.y < edgeTop && p.vy < -minEdgeVy)) {
         detectedSwipe = 'up';
-      } else if (p.vy > 0.32 || (p.y > 0.70 && p.vy > 0.10)) {
+      } else if (p.vy > minExitVy || (p.y > edgeBot && p.vy > minEdgeVy)) {
         detectedSwipe = 'down';
       }
     }
@@ -1130,9 +1144,15 @@ function processHandSwipe(bitmap, timestamp) {
         (hsLastSwipe === 'down'  && detectedSwipe === 'up');
 
       const isSame = (hsLastSwipe === detectedSwipe);
-      const oppositeLockout = isLowFps ? Math.max(300, hsAvgFrameInterval * 3.0) : 380;
-      const sameCooldown    = isLowFps ? Math.max(180, hsAvgFrameInterval * 1.8) : 200;
-      const orthoCooldown   = isLowFps ? Math.max(150, hsAvgFrameInterval * 1.5) : 170;
+      const oppositeLockout = isUltraLowFps ? Math.max(340, hsAvgFrameInterval * 2.8)
+                            : isLowFps      ? Math.max(300, hsAvgFrameInterval * 3.0)
+                            : 380;
+      const sameCooldown    = isUltraLowFps ? Math.max(190, hsAvgFrameInterval * 1.8)
+                            : isLowFps      ? Math.max(180, hsAvgFrameInterval * 1.8)
+                            : 200;
+      const orthoCooldown   = isUltraLowFps ? Math.max(160, hsAvgFrameInterval * 1.5)
+                            : isLowFps      ? Math.max(150, hsAvgFrameInterval * 1.5)
+                            : 170;
 
       const isAllowed = isOpposite ? (timeSinceLast >= oppositeLockout)
                       : isSame     ? (timeSinceLast >= sameCooldown)
@@ -1169,7 +1189,9 @@ function processHandSwipe(bitmap, timestamp) {
     state.hsSource  = null;
     state.hsSwipe   = null;
     state.hsSwipeId = hsSwipeCounter;
-    state.debugText = isLowFps ? '👋 Hand lost (Hold steady in light)' : '👋 Show hand in camera';
+    state.debugText = isUltraLowFps ? '⚡ Low light (7-10 FPS): Broad swipes'
+                    : isLowFps      ? '👋 Hand lost (Hold steady in light)'
+                    : '👋 Show hand in camera';
     return state;
   }
 
@@ -1199,7 +1221,7 @@ function processHandSwipe(bitmap, timestamp) {
 
   // Push new point and prune old entries according to adaptive sliding window
   hsTrail.push({ x: handX, y: handY, time: timestamp });
-  const cutoffWindow = Math.min(480, Math.max(220, hsAvgFrameInterval * 3.6));
+  const cutoffWindow = Math.min(520, Math.max(220, hsAvgFrameInterval * 3.8));
   const cutoff = timestamp - cutoffWindow;
   let startIdx = 0;
   while (startIdx < hsTrail.length - 1 && hsTrail[startIdx].time < cutoff) {
@@ -1215,7 +1237,8 @@ function processHandSwipe(bitmap, timestamp) {
   if (!detectedSwipe && hsTrail.length >= 2) {
     const prevPoint = hsTrail[hsTrail.length - 2];
     const stepDt = (timestamp - prevPoint.time) / 1000;
-    if (stepDt > 0.02 && stepDt <= Math.max(0.28, (hsAvgFrameInterval * 2.2) / 1000)) {
+    const maxAllowedStepDt = Math.max(0.35, (hsAvgFrameInterval * 2.5) / 1000);
+    if (stepDt > 0.02 && stepDt <= maxAllowedStepDt) {
       const stepDx = handX - prevPoint.x;
       const stepDy = handY - prevPoint.y;
       const stepVx = stepDx / stepDt;
@@ -1226,12 +1249,12 @@ function processHandSwipe(bitmap, timestamp) {
       const absStepVx = Math.abs(stepVx);
       const absStepVy = Math.abs(stepVy);
 
-      // Calibrated stroke length: slightly longer required distance (~13-15% of frame)
-      const minStepDx = isLowFps ? 0.13 : 0.15;
-      const minStepDy = isLowFps ? 0.12 : 0.14;
-      const minStepVx = isLowFps ? 0.45 : 0.65;
-      const minStepVy = isLowFps ? 0.40 : 0.60;
-      const domRatio  = isLowFps ? 1.25 : 1.35;
+      // Calibrated stroke length: adaptively lowered for ultra-low FPS (7-10 FPS)
+      const minStepDx = isUltraLowFps ? 0.09 : isLowFps ? 0.13 : 0.15;
+      const minStepDy = isUltraLowFps ? 0.08 : isLowFps ? 0.12 : 0.14;
+      const minStepVx = isUltraLowFps ? 0.28 : isLowFps ? 0.45 : 0.65;
+      const minStepVy = isUltraLowFps ? 0.24 : isLowFps ? 0.40 : 0.60;
+      const domRatio  = isUltraLowFps ? 1.15 : isLowFps ? 1.25 : 1.35;
 
       if (absStepDx >= minStepDx && absStepVx >= minStepVx && absStepDx > absStepDy * domRatio) {
         detectedSwipe = stepDx < 0 ? 'left' : 'right';
@@ -1242,11 +1265,11 @@ function processHandSwipe(bitmap, timestamp) {
   }
 
   // 2. MULTI-SAMPLE SLIDING WINDOW (Trajectory integration for fluid full swipes across ~100-300ms)
-  if (!detectedSwipe && hsTrail.length >= (isLowFps ? 2 : 3)) {
+  if (!detectedSwipe && hsTrail.length >= 2) {
     const oldest = hsTrail[0];
     const dt = (timestamp - oldest.time) / 1000;
     const minDt = Math.max(0.04, (hsAvgFrameInterval * 0.7) / 1000);
-    const maxDt = Math.min(0.50, Math.max(0.26, (hsAvgFrameInterval * 3.8) / 1000));
+    const maxDt = Math.min(0.60, Math.max(0.28, (hsAvgFrameInterval * 3.8) / 1000));
 
     if (dt >= minDt && dt <= maxDt) {
       const dx = handX - oldest.x;
@@ -1259,12 +1282,12 @@ function processHandSwipe(bitmap, timestamp) {
       const absVx = Math.abs(vx);
       const absVy = Math.abs(vy);
 
-      // Calibrated full swipe length: ~15-18% of frame width
-      const minDx = isLowFps ? 0.15 : 0.18;
-      const minDy = isLowFps ? 0.13 : 0.16;
-      const minVx = isLowFps ? 0.40 : 0.60;
-      const minVy = isLowFps ? 0.35 : 0.55;
-      const domRatio = isLowFps ? 1.25 : 1.35;
+      // Calibrated full swipe length: adaptively scaled for low FPS
+      const minDx = isUltraLowFps ? 0.11 : isLowFps ? 0.15 : 0.18;
+      const minDy = isUltraLowFps ? 0.09 : isLowFps ? 0.13 : 0.16;
+      const minVx = isUltraLowFps ? 0.26 : isLowFps ? 0.40 : 0.60;
+      const minVy = isUltraLowFps ? 0.22 : isLowFps ? 0.35 : 0.55;
+      const domRatio = isUltraLowFps ? 1.15 : isLowFps ? 1.25 : 1.35;
 
       if (absDx >= minDx && absVx >= minVx && absDx > absDy * domRatio) {
         detectedSwipe = dx < 0 ? 'left' : 'right';
@@ -1289,9 +1312,15 @@ function processHandSwipe(bitmap, timestamp) {
 
     const isSame = (hsLastSwipe === detectedSwipe);
 
-    const oppositeLockout = isLowFps ? Math.max(300, hsAvgFrameInterval * 3.0) : 380;
-    const sameCooldown    = isLowFps ? Math.max(180, hsAvgFrameInterval * 1.8) : 200;
-    const orthoCooldown   = isLowFps ? Math.max(150, hsAvgFrameInterval * 1.5) : 170;
+    const oppositeLockout = isUltraLowFps ? Math.max(340, hsAvgFrameInterval * 2.8)
+                          : isLowFps      ? Math.max(300, hsAvgFrameInterval * 3.0)
+                          : 380;
+    const sameCooldown    = isUltraLowFps ? Math.max(190, hsAvgFrameInterval * 1.8)
+                          : isLowFps      ? Math.max(180, hsAvgFrameInterval * 1.8)
+                          : 200;
+    const orthoCooldown   = isUltraLowFps ? Math.max(160, hsAvgFrameInterval * 1.5)
+                          : isLowFps      ? Math.max(150, hsAvgFrameInterval * 1.5)
+                          : 170;
 
     if (isOpposite) {
       isAllowed = timeSinceLast >= oppositeLockout;

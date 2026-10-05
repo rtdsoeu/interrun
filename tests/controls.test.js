@@ -863,17 +863,20 @@ describe('Camera Error & Fallback System', () => {
     try {
       const hud = new HUD({ innerHTML: '' }, null, null, null);
 
-      // Normal lighting: 30 FPS -> badge hidden
+      // Normal lighting: 30 FPS -> badge hidden, no ambient glow
       hud.updateCvFPS(30, 20, 30);
       expect(hud.elLowLightBadge.classList.contains('hidden')).toBe(true);
+      expect(elements['game-container']?.classList.contains('low-light-glow')).toBe(false);
 
-      // Low light: 14 FPS -> badge visible
-      hud.updateCvFPS(15, 45, 14);
+      // Severe low light: 10 FPS -> badge visible, ambient fill glow active
+      hud.updateCvFPS(10, 85, 10);
       expect(hud.elLowLightBadge.classList.contains('hidden')).toBe(false);
+      expect(elements['game-container'].classList.contains('low-light-glow')).toBe(true);
 
-      // Recovers: 30 FPS -> badge hidden again
+      // Recovers: 30 FPS -> badge hidden again, glow deactivated
       hud.updateCvFPS(30, 20, 30);
       expect(hud.elLowLightBadge.classList.contains('hidden')).toBe(true);
+      expect(elements['game-container'].classList.contains('low-light-glow')).toBe(false);
     } finally {
       globalThis.document = origDoc;
     }
