@@ -21,6 +21,7 @@ import { FallbackInputLayer } from './FallbackInputLayer.js';
 export class HandSwipeControl extends BaseControl {
   constructor(visionManager) {
     super();
+    this.vision   = visionManager;
     this._vision  = visionManager;
     this._fallback = new FallbackInputLayer();
     this._lastProcessedSwipeId = 0;

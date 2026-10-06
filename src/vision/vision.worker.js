@@ -1091,6 +1091,9 @@ function processFingerGesture(bitmap, timestamp) {
 function isSwipePermitted(detectedSwipe, handPos, timestamp, displacement = 0.15, velocity = 0.50) {
   if (!detectedSwipe) return false;
 
+  const isLowFps = hsAvgFrameInterval >= 48;
+  const isUltraLowFps = hsAvgFrameInterval >= 80;
+
   const timeSinceLast = timestamp - hsLastSwipeTime;
 
   // Global mechanical bounce guard (rapid sensor glitches under 100ms)

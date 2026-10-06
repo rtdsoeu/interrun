@@ -46,9 +46,9 @@ export class FallbackInputLayer {
     const pt = this._pointer.consume();
 
     return {
-      laneDelta: primary.laneDelta || kb.laneDelta || pt.laneDelta,
-      jump:      primary.jump      || kb.jump      || pt.jump,
-      slide:     primary.slide     || kb.slide     || pt.slide,
+      laneDelta: primary.laneDelta !== 0 ? primary.laneDelta : (kb.laneDelta || pt.laneDelta || 0),
+      jump:      Boolean(primary.jump || kb.jump || pt.jump),
+      slide:     Boolean(primary.slide || kb.slide || pt.slide),
     };
   }
 }
