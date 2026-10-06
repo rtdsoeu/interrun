@@ -7,7 +7,7 @@
  *   ↑      — jump (bottom right, primary button)
  *   ↓      — slide / duck (above ↑)
  *
- * Does not register global window events — operates via onpointerdown on DOM elements.
+ * Operates via pointerdown on DOM elements and uses semantic CSS classes.
  */
 import { BaseControl } from './BaseControl.js';
 
@@ -33,29 +33,15 @@ export class TouchButtonControl extends BaseControl {
 
     this._overlay = document.createElement('div');
     this._overlay.id = 'touch-dpad';
-    Object.assign(this._overlay.style, {
-      position: 'absolute',
-      bottom: '0',
-      left: '0',
-      right: '0',
-      height: '160px',
-      zIndex: '50',
-      pointerEvents: 'none',
-      display: 'flex',
-      alignItems: 'flex-end',
-      justifyContent: 'space-between',
-      padding: '0 16px calc(16px + env(safe-area-inset-bottom, 0px))',
-      userSelect: 'none'
-    });
 
     this._overlay.innerHTML = `
-      <div id="dpad-left-group" style="display:flex; gap:10px; align-items:flex-end;">
-        ${this._btn('dpad-left',  '◀', '#00e5ff')}
-        ${this._btn('dpad-right', '▶', '#00e5ff')}
+      <div id="dpad-left-group">
+        <button id="dpad-left" class="dpad-btn" aria-label="Move Left">◀</button>
+        <button id="dpad-right" class="dpad-btn" aria-label="Move Right">▶</button>
       </div>
-      <div id="dpad-right-group" style="display:flex; flex-direction:column; gap:8px; align-items:center;">
-        ${this._btn('dpad-slide', '▼', '#ff6b35', '56px')}
-        ${this._btn('dpad-jump',  '▲', '#00e5ff', '72px')}
+      <div id="dpad-right-group">
+        <button id="dpad-slide" class="dpad-btn dpad-btn-slide" aria-label="Slide">▼</button>
+        <button id="dpad-jump" class="dpad-btn dpad-btn-jump" aria-label="Jump">▲</button>
       </div>
     `;
 
@@ -69,29 +55,7 @@ export class TouchButtonControl extends BaseControl {
     this._bindBtn('dpad-slide', () => this._push({ slide: true }));
   }
 
-  /** Generates inline HTML button */
-  _btn(id, icon, color, size = '64px') {
-    return `
-      <button id="${id}" style="
-        width:${size}; height:${size};
-        background: rgba(0,0,0,0.55);
-        border: 2px solid ${color};
-        border-radius: 50%;
-        color: ${color};
-        font-size: ${parseInt(size) * 0.38}px;
-        font-weight: 900;
-        pointer-events: all;
-        cursor: pointer;
-        touch-action: manipulation;
-        display: flex; align-items: center; justify-content: center;
-        box-shadow: 0 0 16px ${color}55;
-        transition: background 0.1s, transform 0.08s;
-        -webkit-tap-highlight-color: transparent;
-      ">${icon}</button>
-    `;
-  }
-
-  /** Binds pointerdown and visual feedback */
+  /** Binds pointerdown and active visual feedback */
   _bindBtn(id, action) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -100,18 +64,15 @@ export class TouchButtonControl extends BaseControl {
       e.preventDefault();
       if (!this._enabled) return;
       action();
-      el.style.transform = 'scale(0.88)';
-      el.style.background = 'rgba(255,255,255,0.12)';
+      el.classList.add('active');
     });
 
     el.addEventListener('pointerup', () => {
-      el.style.transform = 'scale(1)';
-      el.style.background = 'rgba(0,0,0,0.55)';
+      el.classList.remove('active');
     });
 
     el.addEventListener('pointercancel', () => {
-      el.style.transform = 'scale(1)';
-      el.style.background = 'rgba(0,0,0,0.55)';
+      el.classList.remove('active');
     });
   }
 }

@@ -963,15 +963,17 @@ function processFingerGesture(bitmap, timestamp) {
     const scale = wristToMid + 1e-5;
 
 
-    // Strict extension check by top-point:
-    // 1. Tip must be the topmost point (tip.y strictly above DIP and well above PIP)
-    // 2. Finger must be outstretched: distance from tip to MCP knuckle > 0.45 * scale
-    // 3. Tip must be further from wrist than PIP
+    // Robust extension check based on intrinsic geometric invariants:
+    // 1. Tip is further from wrist than PIP joint: dist2D(tip, wrist) > dist2D(pip, wrist) * 1.04
+    // 2. Tip is outstretched away from base knuckle MCP: dist2D(tip, mcp) > scale * 0.38
+    // 3. Tip is further from MCP than PIP is: dist2D(tip, mcp) > dist2D(pip, mcp) * 1.12
+    // 4. Tip is in the forward/upper sector relative to knuckle: tip.y < mcp.y + scale * 0.12
     const isFingerExtended = (tip, dip, pip, mcp) => {
-      const isTopPoint = (tip.y < dip.y) && (tip.y < pip.y - 0.015);
-      const isOutstretched = dist2D(tip, mcp) > scale * 0.45;
-      const isFurtherThanKnuckle = dist2D(tip, wrist) > dist2D(pip, wrist) * 1.05;
-      return isTopPoint && isOutstretched && isFurtherThanKnuckle;
+      const isFurtherThanPIP = dist2D(tip, wrist) > dist2D(pip, wrist) * 1.04;
+      const isOutstretched = dist2D(tip, mcp) > scale * 0.38;
+      const isUncurled = dist2D(tip, mcp) > dist2D(pip, mcp) * 1.12;
+      const isUpperOrientation = tip.y < mcp.y + scale * 0.12;
+      return isFurtherThanPIP && isOutstretched && isUncurled && isUpperOrientation;
     };
 
     const idxUp   = isFingerExtended(idxTip, idxDIP, idxPIP, idxMCP);
@@ -980,58 +982,50 @@ function processFingerGesture(bitmap, timestamp) {
     const pinkyUp = isFingerExtended(pinkyTip, pinkyDIP, pinkyPIP, pinkyMCP);
 
     // Thumb is extended when spread outward away from the palm/index knuckle
-    const thumbUp = dist2D(thumbTip, idxMCP) > scale * 0.48 &&
-                    dist2D(thumbTip, wrist) > dist2D(thumbMCP, wrist) * 1.10;
+    const thumbUp = dist2D(thumbTip, idxMCP) > scale * 0.44 &&
+                    dist2D(thumbTip, wrist) > dist2D(thumbMCP, wrist) * 1.08;
 
     const extendedCount = (idxUp ? 1 : 0) + (midUp ? 1 : 0) + (ringUp ? 1 : 0) + (pinkyUp ? 1 : 0);
 
-    // Curled check for genuine closed fist:
-    // Fingertip is folded down towards the knuckle (tip.y > pip.y - 0.02) and tucked close to palm
-    const isFingerCurled = (tip, pip, mcp) => {
-      const isFoldedDown = tip.y > pip.y - 0.025;
-      const isCloseToKnuckle = dist2D(tip, mcp) < scale * 0.42;
-      return isFoldedDown && isCloseToKnuckle;
-    };
-
-    const idxCurled   = isFingerCurled(idxTip, idxPIP, idxMCP);
-    const midCurled   = isFingerCurled(midTip, midPIP, midMCP);
-    const ringCurled  = isFingerCurled(ringTip, ringPIP, ringMCP);
-    const pinkyCurled = isFingerCurled(pinkyTip, pinkyPIP, pinkyMCP);
-
-    const isTrueFist = idxCurled && midCurled && ringCurled && pinkyCurled && (extendedCount === 0);
+    // Closed fist detection:
+    // 1. No main fingers extended (extendedCount === 0)
+    // 2. Hand is compact: index and middle tips are curled close to knuckles
+    const isCompactFist = dist2D(idxTip, idxMCP) < scale * 0.58 && dist2D(midTip, midMCP) < scale * 0.58;
+    const isTrueFist = (extendedCount === 0) && isCompactFist;
 
     if (isTrueFist) {
-      fgFistFrames++;
+      fgFistFrames = Math.min(10, fgFistFrames + 1);
     } else {
-      fgFistFrames = 0;
+      // Soft decay: decay by 1 instead of immediate reset to 0 to bridge 1-frame tracking jitter
+      fgFistFrames = Math.max(0, fgFistFrames - 1);
     }
 
     let gesture = null;
     let label = '';
 
-    // 1. Open Palm: ALL 4 main fingers strictly UP -> JUMP (instant priority, eliminates phantom duck before jump)
-    if (idxUp && midUp && ringUp && pinkyUp) {
+    // 1. Open Palm: 4+ fingers extended (or 3 fingers + thumb spread) -> JUMP (instant priority)
+    if (extendedCount >= 4 || (idxUp && midUp && ringUp && pinkyUp) || (extendedCount === 3 && thumbUp && idxUp && midUp)) {
       gesture = 'jump';
       label = '🖐️ PALM: JUMP';
       fgFistFrames = 0;
     }
-    // 2. Closed Fist: all 4 fingers confirmed tightly curled for at least 2 consecutive frames -> DUCK / SLIDE
-    else if (isTrueFist && fgFistFrames >= 2) {
+    // 2. Closed Fist: all fingers curled -> DUCK / SLIDE (instant response, debounced decay)
+    else if (isTrueFist || fgFistFrames >= 1) {
       gesture = 'duck';
       label = '✊ FIST: SLIDE';
     }
-    // 3. Three Fingers: strictly Index + Middle + Ring UP, and Pinky DOWN -> RIGHT LANE (+1)
-    else if (idxUp && midUp && ringUp && !pinkyUp) {
+    // 3. Three Fingers: Index + Middle + Ring (or Thumb + Index + Middle) -> RIGHT LANE (+1)
+    else if ((idxUp && midUp && ringUp && !pinkyUp) || (thumbUp && idxUp && midUp && !ringUp && !pinkyUp) || (extendedCount === 3 && !pinkyUp)) {
       gesture = 'lane_right';
       label = '🤟 3 FINGERS: RIGHT';
     }
-    // 4. Two Fingers: strictly Index + Middle UP, and Ring + Pinky DOWN -> CENTER LANE (0)
-    else if (idxUp && midUp && !ringUp && !pinkyUp) {
+    // 4. Two Fingers: strictly 2 fingers up (Index + Middle) -> CENTER LANE (0)
+    else if ((idxUp && midUp && !ringUp && !pinkyUp) || (extendedCount === 2 && (idxUp || midUp))) {
       gesture = 'lane_center';
       label = '✌️ 2 FINGERS: CENTER';
     }
-    // 5. One Finger: strictly Index UP, and Middle + Ring + Pinky DOWN -> LEFT LANE (-1)
-    else if (idxUp && !midUp && !ringUp && !pinkyUp) {
+    // 5. One Finger: strictly Index up -> LEFT LANE (-1)
+    else if ((idxUp && !midUp && !ringUp && !pinkyUp) || (extendedCount === 1 && idxUp)) {
       gesture = 'lane_left';
       label = '☝️ 1 FINGER: LEFT';
     } else {
@@ -1044,13 +1038,14 @@ function processFingerGesture(bitmap, timestamp) {
     state.debugText = label;
 
     const pc = palmCenter(hand);
+    const fistActive = gesture === 'duck';
     state.points = [
-      { x: 1 - pc.x, y: pc.y, color: '#ff6b35', r: 7 },
-      { x: 1 - thumbTip.x, y: thumbTip.y, color: thumbUp ? '#00ff88' : '#666', r: 4 },
-      { x: 1 - idxTip.x, y: idxTip.y, color: idxUp ? '#00ff88' : '#666', r: 4 },
-      { x: 1 - midTip.x, y: midTip.y, color: midUp ? '#00ff88' : '#666', r: 4 },
-      { x: 1 - ringTip.x, y: ringTip.y, color: ringUp ? '#00ff88' : '#666', r: 4 },
-      { x: 1 - pinkyTip.x, y: pinkyTip.y, color: pinkyUp ? '#00ff88' : '#666', r: 4 }
+      { x: 1 - pc.x, y: pc.y, color: fistActive ? '#ffd700' : '#ff6b35', r: fistActive ? 8 : 7 },
+      { x: 1 - thumbTip.x, y: thumbTip.y, color: thumbUp ? '#00ff88' : (fistActive ? '#ffaa00' : '#666'), r: 4 },
+      { x: 1 - idxTip.x, y: idxTip.y, color: idxUp ? '#00ff88' : (fistActive ? '#ffaa00' : '#666'), r: 4 },
+      { x: 1 - midTip.x, y: midTip.y, color: midUp ? '#00ff88' : (fistActive ? '#ffaa00' : '#666'), r: 4 },
+      { x: 1 - ringTip.x, y: ringTip.y, color: ringUp ? '#00ff88' : (fistActive ? '#ffaa00' : '#666'), r: 4 },
+      { x: 1 - pinkyTip.x, y: pinkyTip.y, color: pinkyUp ? '#00ff88' : (fistActive ? '#ffaa00' : '#666'), r: 4 }
     ];
   } else {
     fgFistFrames = 0;
@@ -1078,6 +1073,75 @@ function processFingerGesture(bitmap, timestamp) {
 // - Complete trail flush on swipe commit.
 // - Increments monotonic hsSwipeCounter for single-event consumption on the main thread.
 // ---------------------------------------------------------------------------
+/**
+ * Overhauled Anti-Recoil and Gesture Validation.
+ * Uses Temporal Refractory Gating with deliberate counter-swipe bypass:
+ *
+ * 1. Opposite Swipes (Anti-Recoil Guard):
+ *    - After a swipe in direction D, pulling the hand back naturally in -D is recoil.
+ *    - A refractory lockout window of 240ms (adaptive to camera frame rate) blocks low/medium speed recoil.
+ *    - High-velocity, large-amplitude counter-swipes after 140ms bypass the lockout.
+ *
+ * 2. Same Direction Swipes (Double-Swipe):
+ *    - Brief refractory window of 160ms allows fluid consecutive lane shifts in the same direction.
+ *
+ * 3. Orthogonal Combos (Left -> Jump, Right -> Slide):
+ *    - Different axes have zero recoil conflict; responsive 110ms combo window.
+ */
+function isSwipePermitted(detectedSwipe, handPos, timestamp, displacement = 0.15, velocity = 0.50) {
+  if (!detectedSwipe) return false;
+
+  const timeSinceLast = timestamp - hsLastSwipeTime;
+
+  // Global mechanical bounce guard (rapid sensor glitches under 100ms)
+  if (timeSinceLast < 100) {
+    return false;
+  }
+
+  const isOpposite =
+    (hsLastSwipe === 'left'  && detectedSwipe === 'right') ||
+    (hsLastSwipe === 'right' && detectedSwipe === 'left')  ||
+    (hsLastSwipe === 'up'    && detectedSwipe === 'down')  ||
+    (hsLastSwipe === 'down'  && detectedSwipe === 'up');
+
+  const isSame = (hsLastSwipe === detectedSwipe);
+
+  // 1. OPPOSITE SWIPE VALIDATION (Temporal Anti-Recoil)
+  if (isOpposite) {
+    const minTurnaround = isUltraLowFps ? Math.max(220, hsAvgFrameInterval * 2.0)
+                        : isLowFps      ? Math.max(200, hsAvgFrameInterval * 2.0)
+                        : 240;
+
+    if (timeSinceLast < minTurnaround) {
+      // Deliberate fast counter-swipe bypass:
+      // If at least 140ms has passed and the movement is high velocity & amplitude, permit it
+      const isStrongCounter = (displacement >= 0.16) && (velocity >= 0.65);
+      if (!(timeSinceLast >= 140 && isStrongCounter)) {
+        return false;
+      }
+    }
+  }
+  // 2. SAME DIRECTION SWIPE (Double-Swipe in same direction)
+  else if (isSame) {
+    const sameCooldown = isUltraLowFps ? Math.max(160, hsAvgFrameInterval * 1.5)
+                       : isLowFps      ? Math.max(150, hsAvgFrameInterval * 1.5)
+                       : 160;
+    if (timeSinceLast < sameCooldown) return false;
+  }
+  // 3. ORTHOGONAL COMBO (e.g. Left -> Jump, Right -> Slide)
+  else {
+    const orthoCooldown = isUltraLowFps ? Math.max(110, hsAvgFrameInterval * 1.2)
+                        : isLowFps      ? Math.max(100, hsAvgFrameInterval * 1.2)
+                        : 110;
+    if (timeSinceLast < orthoCooldown) return false;
+  }
+
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// HandSwipe (Stage 5) — Process Hand Swipe
+// ---------------------------------------------------------------------------
 function processHandSwipe(bitmap, timestamp) {
   const state = baseState();
 
@@ -1095,50 +1159,48 @@ function processHandSwipe(bitmap, timestamp) {
   }
   hsPrevFrameTime = timestamp;
 
-  // Frame interval >= 48ms indicates <= 21 FPS (low-light auto-exposure mode)
+  // Frame interval classification:
+  // >= 48ms indicates <= 21 FPS (low-light auto-exposure mode)
   const isLowFps = hsAvgFrameInterval >= 48;
+  // >= 80ms indicates <= 12.5 FPS (severe low-light auto-exposure mode, e.g. 7-10 FPS)
+  const isUltraLowFps = hsAvgFrameInterval >= 80;
 
   const results = handLandmarker.detectForVideo(bitmap, timestamp);
 
   // ---------------------------------------------------------------------------
-  // HAND LOST BRANCH — Handle Exit Flicks and trail cleanup
+  // HAND LOST BRANCH — Handle Exit Flicks, Motion Blur Dropout, and trail cleanup
   // ---------------------------------------------------------------------------
   if (!(results?.landmarks?.length > 0)) {
     let detectedSwipe = null;
 
-    // EXIT FLICK: If hand was moving rapidly towards an edge and vanished in the next
-    // frame due to motion blur or leaving the camera frame, trigger the completed swipe.
-    if (hsLastKnownPos && (timestamp - hsLastKnownPos.time) <= Math.max(260, hsAvgFrameInterval * 2.5)) {
+    // EXIT FLICK & MOTION BLUR DROPOUT:
+    // If hand was moving rapidly or near an edge and vanished in the next
+    // frame due to motion blur, trigger the completed swipe.
+    const maxLostWindow = Math.max(300, hsAvgFrameInterval * 2.8);
+    if (hsLastKnownPos && (timestamp - hsLastKnownPos.time) <= maxLostWindow) {
       const p = hsLastKnownPos;
-      if (p.vx < -0.32 || (p.x < 0.32 && p.vx < -0.10)) {
+      const minExitVx = isUltraLowFps ? 0.18 : isLowFps ? 0.26 : 0.32;
+      const minExitVy = isUltraLowFps ? 0.16 : isLowFps ? 0.24 : 0.32;
+      const minEdgeVx = isUltraLowFps ? 0.05 : isLowFps ? 0.08 : 0.10;
+      const minEdgeVy = isUltraLowFps ? 0.05 : isLowFps ? 0.08 : 0.10;
+      const edgeLeft  = isUltraLowFps ? 0.38 : 0.32;
+      const edgeRight = isUltraLowFps ? 0.62 : 0.68;
+      const edgeTop   = isUltraLowFps ? 0.36 : 0.30;
+      const edgeBot   = isUltraLowFps ? 0.64 : 0.70;
+
+      if (p.vx < -minExitVx || (p.x < edgeLeft && p.vx < -minEdgeVx)) {
         detectedSwipe = 'left';
-      } else if (p.vx > 0.32 || (p.x > 0.68 && p.vx > 0.10)) {
+      } else if (p.vx > minExitVx || (p.x > edgeRight && p.vx > minEdgeVx)) {
         detectedSwipe = 'right';
-      } else if (p.vy < -0.32 || (p.y < 0.30 && p.vy < -0.10)) {
+      } else if (p.vy < -minExitVy || (p.y < edgeTop && p.vy < -minEdgeVy)) {
         detectedSwipe = 'up';
-      } else if (p.vy > 0.32 || (p.y > 0.70 && p.vy > 0.10)) {
+      } else if (p.vy > minExitVy || (p.y > edgeBot && p.vy > minEdgeVy)) {
         detectedSwipe = 'down';
       }
     }
 
     if (detectedSwipe) {
-      const timeSinceLast = timestamp - hsLastSwipeTime;
-      const isOpposite =
-        (hsLastSwipe === 'left'  && detectedSwipe === 'right') ||
-        (hsLastSwipe === 'right' && detectedSwipe === 'left')  ||
-        (hsLastSwipe === 'up'    && detectedSwipe === 'down')  ||
-        (hsLastSwipe === 'down'  && detectedSwipe === 'up');
-
-      const isSame = (hsLastSwipe === detectedSwipe);
-      const oppositeLockout = isLowFps ? Math.max(300, hsAvgFrameInterval * 3.0) : 380;
-      const sameCooldown    = isLowFps ? Math.max(180, hsAvgFrameInterval * 1.8) : 200;
-      const orthoCooldown   = isLowFps ? Math.max(150, hsAvgFrameInterval * 1.5) : 170;
-
-      const isAllowed = isOpposite ? (timeSinceLast >= oppositeLockout)
-                      : isSame     ? (timeSinceLast >= sameCooldown)
-                                   : (timeSinceLast >= orthoCooldown);
-
-      if (isAllowed) {
+      if (isSwipePermitted(detectedSwipe, hsLastKnownPos, timestamp)) {
         hsSwipeCounter++;
         hsLastSwipe = detectedSwipe;
         hsLastSwipeTime = timestamp;
@@ -1169,7 +1231,9 @@ function processHandSwipe(bitmap, timestamp) {
     state.hsSource  = null;
     state.hsSwipe   = null;
     state.hsSwipeId = hsSwipeCounter;
-    state.debugText = isLowFps ? '👋 Hand lost (Hold steady in light)' : '👋 Show hand in camera';
+    state.debugText = isUltraLowFps ? '⚡ Low light (7-10 FPS): Broad swipes'
+                    : isLowFps      ? '👋 Hand lost (Hold steady in light)'
+                    : '👋 Show hand in camera';
     return state;
   }
 
@@ -1183,6 +1247,13 @@ function processHandSwipe(bitmap, timestamp) {
 
   state.hsSource  = 'hand';
   state.hsHandPos = { x: handX, y: handY };
+
+  // Neutral center reset: once hand rests in or crosses the neutral box, clear prior swipe direction
+  if (handX >= 0.42 && handX <= 0.58 && handY >= 0.38 && handY <= 0.62) {
+    if (timestamp - hsLastSwipeTime >= 150) {
+      hsLastSwipe = null;
+    }
+  }
 
   // Outlier rejection: if hand jumped excessively fast across the frame, ignore glitch
   const lastPoint = hsTrail.length > 0 ? hsTrail[hsTrail.length - 1] : null;
@@ -1199,7 +1270,7 @@ function processHandSwipe(bitmap, timestamp) {
 
   // Push new point and prune old entries according to adaptive sliding window
   hsTrail.push({ x: handX, y: handY, time: timestamp });
-  const cutoffWindow = Math.min(480, Math.max(220, hsAvgFrameInterval * 3.6));
+  const cutoffWindow = Math.min(520, Math.max(220, hsAvgFrameInterval * 3.8));
   const cutoff = timestamp - cutoffWindow;
   let startIdx = 0;
   while (startIdx < hsTrail.length - 1 && hsTrail[startIdx].time < cutoff) {
@@ -1210,12 +1281,15 @@ function processHandSwipe(bitmap, timestamp) {
   }
 
   let detectedSwipe = null;
+  let swipeDisplacement = 0;
+  let swipeVelocity = 0;
 
   // 1. IMMEDIATE STEP-DELTA (Inter-frame sudden displacement, catches quick intra-frame flicks)
   if (!detectedSwipe && hsTrail.length >= 2) {
     const prevPoint = hsTrail[hsTrail.length - 2];
     const stepDt = (timestamp - prevPoint.time) / 1000;
-    if (stepDt > 0.02 && stepDt <= Math.max(0.28, (hsAvgFrameInterval * 2.2) / 1000)) {
+    const maxAllowedStepDt = Math.max(0.35, (hsAvgFrameInterval * 2.5) / 1000);
+    if (stepDt > 0.02 && stepDt <= maxAllowedStepDt) {
       const stepDx = handX - prevPoint.x;
       const stepDy = handY - prevPoint.y;
       const stepVx = stepDx / stepDt;
@@ -1226,27 +1300,31 @@ function processHandSwipe(bitmap, timestamp) {
       const absStepVx = Math.abs(stepVx);
       const absStepVy = Math.abs(stepVy);
 
-      // Calibrated stroke length: slightly longer required distance (~13-15% of frame)
-      const minStepDx = isLowFps ? 0.13 : 0.15;
-      const minStepDy = isLowFps ? 0.12 : 0.14;
-      const minStepVx = isLowFps ? 0.45 : 0.65;
-      const minStepVy = isLowFps ? 0.40 : 0.60;
-      const domRatio  = isLowFps ? 1.25 : 1.35;
+      // Calibrated stroke length: adaptively lowered for ultra-low FPS (7-10 FPS)
+      const minStepDx = isUltraLowFps ? 0.08 : isLowFps ? 0.11 : 0.13;
+      const minStepDy = isUltraLowFps ? 0.07 : isLowFps ? 0.10 : 0.12;
+      const minStepVx = isUltraLowFps ? 0.25 : isLowFps ? 0.38 : 0.52;
+      const minStepVy = isUltraLowFps ? 0.22 : isLowFps ? 0.34 : 0.48;
+      const domRatio  = isUltraLowFps ? 1.15 : isLowFps ? 1.20 : 1.25;
 
       if (absStepDx >= minStepDx && absStepVx >= minStepVx && absStepDx > absStepDy * domRatio) {
         detectedSwipe = stepDx < 0 ? 'left' : 'right';
+        swipeDisplacement = absStepDx;
+        swipeVelocity = absStepVx;
       } else if (absStepDy >= minStepDy && absStepVy >= minStepVy && absStepDy > absStepDx * domRatio) {
         detectedSwipe = stepDy < 0 ? 'up' : 'down';
+        swipeDisplacement = absStepDy;
+        swipeVelocity = absStepVy;
       }
     }
   }
 
   // 2. MULTI-SAMPLE SLIDING WINDOW (Trajectory integration for fluid full swipes across ~100-300ms)
-  if (!detectedSwipe && hsTrail.length >= (isLowFps ? 2 : 3)) {
+  if (!detectedSwipe && hsTrail.length >= 2) {
     const oldest = hsTrail[0];
     const dt = (timestamp - oldest.time) / 1000;
     const minDt = Math.max(0.04, (hsAvgFrameInterval * 0.7) / 1000);
-    const maxDt = Math.min(0.50, Math.max(0.26, (hsAvgFrameInterval * 3.8) / 1000));
+    const maxDt = Math.min(0.60, Math.max(0.28, (hsAvgFrameInterval * 3.8) / 1000));
 
     if (dt >= minDt && dt <= maxDt) {
       const dx = handX - oldest.x;
@@ -1259,49 +1337,31 @@ function processHandSwipe(bitmap, timestamp) {
       const absVx = Math.abs(vx);
       const absVy = Math.abs(vy);
 
-      // Calibrated full swipe length: ~15-18% of frame width
-      const minDx = isLowFps ? 0.15 : 0.18;
-      const minDy = isLowFps ? 0.13 : 0.16;
-      const minVx = isLowFps ? 0.40 : 0.60;
-      const minVy = isLowFps ? 0.35 : 0.55;
-      const domRatio = isLowFps ? 1.25 : 1.35;
+      // Calibrated full swipe length: adaptively scaled for low FPS
+      const minDx = isUltraLowFps ? 0.10 : isLowFps ? 0.13 : 0.15;
+      const minDy = isUltraLowFps ? 0.08 : isLowFps ? 0.11 : 0.13;
+      const minVx = isUltraLowFps ? 0.22 : isLowFps ? 0.32 : 0.44;
+      const minVy = isUltraLowFps ? 0.20 : isLowFps ? 0.28 : 0.40;
+      const domRatio = isUltraLowFps ? 1.15 : isLowFps ? 1.20 : 1.25;
 
       if (absDx >= minDx && absVx >= minVx && absDx > absDy * domRatio) {
         detectedSwipe = dx < 0 ? 'left' : 'right';
+        swipeDisplacement = absDx;
+        swipeVelocity = absVx;
       } else if (absDy >= minDy && absVy >= minVy && absDy > absDx * domRatio) {
         detectedSwipe = dy < 0 ? 'up' : 'down';
+        swipeDisplacement = absDy;
+        swipeVelocity = absVy;
       }
     }
   }
 
   // ---------------------------------------------------------------------------
-  // SWIPE VALIDATION (Cooldowns and Anti-Recoil Lockout)
+  // SWIPE VALIDATION (Overhauled Anti-Recoil and Cooldowns)
   // ---------------------------------------------------------------------------
   if (detectedSwipe) {
-    const timeSinceLast = timestamp - hsLastSwipeTime;
-    let isAllowed = false;
-
-    const isOpposite =
-      (hsLastSwipe === 'left'  && detectedSwipe === 'right') ||
-      (hsLastSwipe === 'right' && detectedSwipe === 'left')  ||
-      (hsLastSwipe === 'up'    && detectedSwipe === 'down')  ||
-      (hsLastSwipe === 'down'  && detectedSwipe === 'up');
-
-    const isSame = (hsLastSwipe === detectedSwipe);
-
-    const oppositeLockout = isLowFps ? Math.max(300, hsAvgFrameInterval * 3.0) : 380;
-    const sameCooldown    = isLowFps ? Math.max(180, hsAvgFrameInterval * 1.8) : 200;
-    const orthoCooldown   = isLowFps ? Math.max(150, hsAvgFrameInterval * 1.5) : 170;
-
-    if (isOpposite) {
-      isAllowed = timeSinceLast >= oppositeLockout;
-    } else if (isSame) {
-      isAllowed = timeSinceLast >= sameCooldown;
-    } else {
-      isAllowed = timeSinceLast >= orthoCooldown;
-    }
-
-    if (isAllowed) {
+    const currentPos = { x: handX, y: handY };
+    if (isSwipePermitted(detectedSwipe, currentPos, timestamp, swipeDisplacement, swipeVelocity)) {
       hsSwipeCounter++;
       hsLastSwipe = detectedSwipe;
       hsLastSwipeTime = timestamp;
@@ -1315,8 +1375,7 @@ function processHandSwipe(bitmap, timestamp) {
     }
   }
 
-
-  // Calculate current velocity for exit flick tracking
+  // Calculate current velocity for exit flick tracking and resting reset
   let curVx = 0;
   let curVy = 0;
   if (hsTrail.length >= 2) {
@@ -1328,6 +1387,12 @@ function processHandSwipe(bitmap, timestamp) {
     }
   }
   hsLastKnownPos = { x: handX, y: handY, time: timestamp, vx: curVx, vy: curVy };
+
+  // Resting reset: if hand has paused/slowed down (|v| < 0.22) for >= 120ms,
+  // clear prior swipe direction so subsequent swipes in any direction start fresh
+  if (Math.hypot(curVx, curVy) < 0.22 && (timestamp - hsLastSwipeTime >= 120)) {
+    hsLastSwipe = null;
+  }
 
   // Update visual debug timer
   if (hsDebugTimer > 0) {
