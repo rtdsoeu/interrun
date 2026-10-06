@@ -8,6 +8,31 @@ export const ObstacleType = {
 };
 
 /**
+ * Evaluates whether a runner hitbox collides with an obstacle.
+ * Takes into account specific obstacle clearance rules:
+ * - SLIDE_BARRIER: cleared if runner ducks underneath (runnerHitbox.max.y < obs.minY + 0.1)
+ * - JUMP_BARRIER: cleared if runner jumps above (runnerHitbox.min.y > obs.maxY - 0.1)
+ * - TRAIN_BLOCKER: always collides if bounding boxes intersect
+ *
+ * @param {THREE.Box3} runnerHitbox
+ * @param {{ type: string, box: THREE.Box3, minY: number, maxY: number }} obs
+ * @returns {boolean} true if collision occurs
+ */
+export function checkObstacleCollision(runnerHitbox, obs) {
+  if (!runnerHitbox.intersectsBox(obs.box)) return false;
+
+  if (obs.type === ObstacleType.SLIDE_BARRIER && runnerHitbox.max.y < obs.minY + 0.1) {
+    return false;
+  }
+
+  if (obs.type === ObstacleType.JUMP_BARRIER && runnerHitbox.min.y > obs.maxY - 0.1) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * ObstacleManager — obstacle and coin generation with guaranteed
  * precise analytical hitboxes and evenly spaced obstacle rows.
  */
@@ -381,21 +406,9 @@ export class ObstacleManager {
       obs.box.min.set(obs.x - obs.halfW, obs.minY, currentZ - obs.halfD);
       obs.box.max.set(obs.x + obs.halfW, obs.maxY, currentZ + obs.halfD);
 
-      if (!obs.passed && runnerHitbox.intersectsBox(obs.box)) {
-        let isHit = true;
-
-        if (obs.type === ObstacleType.SLIDE_BARRIER && runnerHitbox.max.y < obs.minY + 0.1) {
-          isHit = false;
-        }
-
-        if (obs.type === ObstacleType.JUMP_BARRIER && runnerHitbox.min.y > obs.maxY - 0.1) {
-          isHit = false;
-        }
-
-        if (isHit) {
-          obs.passed = true;
-          if (onHit) onHit(obs);
-        }
+      if (!obs.passed && checkObstacleCollision(runnerHitbox, obs)) {
+        obs.passed = true;
+        if (onHit) onHit(obs);
       }
 
       if (currentZ > 15) {
