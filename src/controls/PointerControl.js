@@ -25,25 +25,25 @@ export class PointerControl extends BaseControl {
     this.SWIPE_THRESHOLD_Y = 35;
 
     // Bound handlers (mouse)
-    this._onMouseDown     = (e) => { if (this._isUIElement(e.target)) return; this._handleDown(e.clientX, e.clientY, e.button); };
-    this._onMouseMove     = (e) => this._handleMove(e.clientX, e.clientY);
-    this._onMouseUp       = (e) => { if (this._isUIElement(e.target)) return; this._handleUp(e.clientX, e.clientY, e.button); };
-    this._onContextMenu   = (e) => { e.preventDefault(); if (this._enabled) this._push({ slide: true }); };
+    this._onMouseDown     = (e) => { if (e?.target && this._isUIElement(e.target)) return; this._handleDown(e?.clientX ?? 0, e?.clientY ?? 0, e?.button ?? 0); };
+    this._onMouseMove     = (e) => this._handleMove(e?.clientX ?? 0, e?.clientY ?? 0);
+    this._onMouseUp       = (e) => { if (e?.target && this._isUIElement(e.target)) return; this._handleUp(e?.clientX ?? 0, e?.clientY ?? 0, e?.button ?? 0); };
+    this._onContextMenu   = (e) => { e?.preventDefault?.(); if (this._enabled) this._push({ slide: true }); };
 
     // Bound handlers (touch)
     this._onTouchStart = (e) => {
-      if (this._isUIElement(e.target)) return;
-      const t = e.touches[0];
-      this._handleDown(t.clientX, t.clientY, 0);
+      if (e?.target && this._isUIElement(e.target)) return;
+      const t = e?.touches?.[0];
+      if (t) this._handleDown(t.clientX, t.clientY, 0);
     };
     this._onTouchMove = (e) => {
-      const t = e.touches[0];
-      this._handleMove(t.clientX, t.clientY);
+      const t = e?.touches?.[0];
+      if (t) this._handleMove(t.clientX, t.clientY);
     };
     this._onTouchEnd = (e) => {
-      if (this._isUIElement(e.target)) return;
-      const t = e.changedTouches[0];
-      this._handleUp(t.clientX, t.clientY, 0);
+      if (e?.target && this._isUIElement(e.target)) return;
+      const t = e?.changedTouches?.[0];
+      this._handleUp(t ? t.clientX : (this._startX ?? 0), t ? t.clientY : (this._startY ?? 0), 0);
     };
   }
 
@@ -52,7 +52,7 @@ export class PointerControl extends BaseControl {
     if (!el) return false;
     const tag = el.tagName?.toLowerCase();
     if (tag === 'button' || tag === 'a' || tag === 'input' || tag === 'select') return true;
-    // Look for closest interactive ancestor
+    if (typeof el.closest !== 'function') return false;
     return !!el.closest('button, a, input, [data-no-swipe]');
   }
 

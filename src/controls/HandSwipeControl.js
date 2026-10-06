@@ -1,156 +1,82 @@
 /**
- * HandSwipeControl — Stage 5: Air Swipes control.
+ * HandSwipeControl — Stage 5: Contactless air swipes.
  *
- * Contactless dynamic hand swipes in front of the webcam:
- *   - Swipe LEFT  -> step 1 lane left (laneDelta: -1)
- *   - Swipe RIGHT -> step 1 lane right (laneDelta: 1)
- *   - Swipe UP    -> jump (jump: true)
- *   - Swipe DOWN  -> slide/duck (slide: true)
+ * Reads swipe events from the vision worker (monotonic hsSwipeId ensures
+ * each gesture is consumed exactly once by the 60 FPS game loop).
  *
- * Each swipe event contains a monotonic hsSwipeId from the vision worker,
- * ensuring each detected gesture is consumed exactly once by the game loop.
+ * Swipe mapping:
+ *   LEFT  → step 1 lane left  (laneDelta: -1)
+ *   RIGHT → step 1 lane right (laneDelta: +1)
+ *   UP    → jump              (jump: true)
+ *   DOWN  → slide / duck      (slide: true)
+ *
+ * Keyboard and touch swipe fallbacks are handled via FallbackInputLayer
+ * so there is no code duplication with KeyboardControl / PointerControl.
  *
  * Vision Worker mode: 'handswipe'
  */
 import { BaseControl } from './BaseControl.js';
+import { FallbackInputLayer } from './FallbackInputLayer.js';
 
 export class HandSwipeControl extends BaseControl {
   constructor(visionManager) {
     super();
-    this.vision = visionManager;
+    this._vision  = visionManager;
+    this._fallback = new FallbackInputLayer();
     this._lastProcessedSwipeId = 0;
-
-    // Fallback keyboard controls for low-light emergency backup
-    this._heldKeys = new Set();
-    this._laneArmed = true;
-    this._jumpArmed = true;
-    this._slideArmed = true;
-    this._onKD = (e) => this._keyDown(e);
-    this._onKU = (e) => this._keyUp(e);
-
-    // Fallback touch controls
-    this._touchStartX = 0;
-    this._touchStartY = 0;
-    this._touchDown = false;
-    this._touchTriggered = false;
-    this._onTouchStart = (e) => {
-      if (this._isUI(e.target)) return;
-      const t = e.touches[0];
-      this._touchStartX = t.clientX;
-      this._touchStartY = t.clientY;
-      this._touchDown = true;
-      this._touchTriggered = false;
-    };
-    this._onTouchMove = (e) => {
-      if (!this._touchDown || this._touchTriggered) return;
-      const t = e.touches[0];
-      const dx = t.clientX - this._touchStartX;
-      const dy = t.clientY - this._touchStartY;
-      if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy)) {
-        this._push({ laneDelta: dx > 0 ? 1 : -1 });
-        this._touchTriggered = true;
-      } else if (Math.abs(dy) > 35) {
-        this._push(dy < 0 ? { jump: true } : { slide: true });
-        this._touchTriggered = true;
-      }
-    };
-    this._onTouchEnd = () => {
-      this._touchDown = false;
-      this._touchTriggered = false;
-    };
   }
 
-  _isUI(el) {
-    if (!el || typeof el.closest !== 'function') return false;
-    return !!el.closest('button, a, input, select, [data-no-swipe]');
-  }
+  // ── Delegation proxies ──────────────────────────────────────────────────
+  // Expose FallbackInputLayer internals so tests (and potential future debug
+  // tooling) can drive keyboard/touch events directly on HandSwipeControl.
+  /** @param {KeyboardEvent} e */
+  _keyDown(e)       { this._fallback._keyboard._keyDown(e); }
+  /** @param {KeyboardEvent} e */
+  _keyUp(e)         { this._fallback._keyboard._keyUp(e); }
+  /** @param {TouchEvent} e */
+  _onTouchStart(e)  { this._fallback._pointer._onTouchStart(e); }
+  /** @param {TouchEvent} e */
+  _onTouchMove(e)   { this._fallback._pointer._onTouchMove(e); }
+  /** @param {TouchEvent} e */
+  _onTouchEnd(e)    { this._fallback._pointer._onTouchEnd(e); }
+  // ────────────────────────────────────────────────────────────────────────
 
   _onEnable() {
-    if (this.vision) {
-      this.vision.setMode('handswipe');
-      this.vision.initWebcam();
+    if (this._vision) {
+      this._vision.setMode('handswipe');
+      this._vision.initWebcam();
     }
     this._lastProcessedSwipeId = 0;
-    window.addEventListener('keydown', this._onKD);
-    window.addEventListener('keyup',   this._onKU);
-    window.addEventListener('touchstart', this._onTouchStart, { passive: true });
-    window.addEventListener('touchmove',  this._onTouchMove,  { passive: true });
-    window.addEventListener('touchend',   this._onTouchEnd,   { passive: true });
+    this._fallback.enable();
   }
 
   _onDisable() {
     this._lastProcessedSwipeId = 0;
-    window.removeEventListener('keydown', this._onKD);
-    window.removeEventListener('keyup',   this._onKU);
-    window.removeEventListener('touchstart', this._onTouchStart);
-    window.removeEventListener('touchmove',  this._onTouchMove);
-    window.removeEventListener('touchend',   this._onTouchEnd);
-    this._heldKeys.clear();
-    this._laneArmed = this._jumpArmed = this._slideArmed = true;
-    this._touchDown = false;
+    this._fallback.disable();
   }
 
-  _keyDown(e) {
-    if (this._heldKeys.has(e.code)) return;
-    this._heldKeys.add(e.code);
+  update(dt) {
+    this._fallback.update(dt);
 
-    switch (e.code) {
-      case 'ArrowLeft':
-      case 'KeyA':
-        if (this._laneArmed) { this._push({ laneDelta: -1 }); this._laneArmed = false; }
-        break;
-      case 'ArrowRight':
-      case 'KeyD':
-        if (this._laneArmed) { this._push({ laneDelta: 1 }); this._laneArmed = false; }
-        break;
-      case 'ArrowUp':
-      case 'KeyW':
-      case 'Space':
-        if (this._jumpArmed) { this._push({ jump: true }); this._jumpArmed = false; }
-        e.preventDefault();
-        break;
-      case 'ArrowDown':
-      case 'KeyS':
-        if (this._slideArmed) { this._push({ slide: true }); this._slideArmed = false; }
-        e.preventDefault();
-        break;
-    }
-  }
+    if (!this._enabled || !this._vision?.isReady) return;
 
-  _keyUp(e) {
-    this._heldKeys.delete(e.code);
-    const noLane = !this._heldKeys.has('ArrowLeft') && !this._heldKeys.has('KeyA') &&
-                   !this._heldKeys.has('ArrowRight') && !this._heldKeys.has('KeyD');
-    if (noLane) this._laneArmed = true;
-    if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') this._jumpArmed  = true;
-    if (e.code === 'ArrowDown' || e.code === 'KeyS')                      this._slideArmed = true;
-  }
-
-  update(_dt) {
-    if (!this._enabled || !this.vision || !this.vision.isReady) return;
-
-    const { hsSwipe, hsSwipeId, hsSource } = this.vision.currentState;
+    const { hsSwipe, hsSwipeId, hsSource } = this._vision.currentState;
     if (!hsSource || !hsSwipe) return;
 
-    // Guard against multi-firing: process each swipe ID once
-    if (hsSwipeId && hsSwipeId === this._lastProcessedSwipeId) {
-      return;
-    }
+    // Guard: consume each swipe ID exactly once (worker increments monotonically)
+    if (hsSwipeId && hsSwipeId === this._lastProcessedSwipeId) return;
     this._lastProcessedSwipeId = hsSwipeId;
 
     switch (hsSwipe) {
-      case 'left':
-        this._push({ laneDelta: -1 });
-        break;
-      case 'right':
-        this._push({ laneDelta: 1 });
-        break;
-      case 'up':
-        this._push({ jump: true });
-        break;
-      case 'down':
-        this._push({ slide: true });
-        break;
+      case 'left':  this._push({ laneDelta: -1 }); break;
+      case 'right': this._push({ laneDelta:  1 }); break;
+      case 'up':    this._push({ jump: true });     break;
+      case 'down':  this._push({ slide: true });    break;
     }
+  }
+
+  consume() {
+    // CV swipe takes priority; fallback fills in any unset actions
+    return this._fallback.consume(super.consume());
   }
 }
