@@ -20,9 +20,8 @@ export class FingerGestureControl extends BaseControl {
     /** Absolute target lane: -1 (L), 0 (C), 1 (R) */
     this._desiredLane = 0;
 
-    /** Ducking flag */
-    this._isDucking = false;
-    this._duckHoldTimer = 0;
+    /** Fist gesture re-arm latch to prevent continuous slide spam without releasing fist */
+    this._fistArmed = true;
 
     /** Lane stability confirmation buffer */
     this._pendingLaneGesture = null;
@@ -35,16 +34,14 @@ export class FingerGestureControl extends BaseControl {
       this.vision.initWebcam();
     }
     this._desiredLane = 0;
-    this._isDucking = false;
-    this._duckHoldTimer = 0;
+    this._fistArmed = true;
     this._pendingLaneGesture = null;
     this._pendingLaneTimer = 0;
   }
 
   _onDisable() {
     this._desiredLane = 0;
-    this._isDucking = false;
-    this._duckHoldTimer = 0;
+    this._fistArmed = true;
     this._pendingLaneGesture = null;
     this._pendingLaneTimer = 0;
   }
@@ -54,45 +51,30 @@ export class FingerGestureControl extends BaseControl {
 
     const { fgGesture, fgSource } = this.vision.currentState;
 
-    // No tracking — reliably reset ducking and lane change buffer immediately
+    // No tracking — re-arm fist and reset lane change buffer immediately
     if (!fgSource) {
-      this._isDucking = false;
-      this._duckHoldTimer = 0;
+      this._fistArmed = true;
       this._pendingLaneGesture = null;
       this._pendingLaneTimer = 0;
       return;
     }
 
-    // 1. DUCK / SLIDE (INSTANT TRIGGER WITH SUSTAINED RELEASE BUFFER)
+    // 1. DUCK / SLIDE (Trigger once per fist clench; requires releasing fist to re-arm)
     if (fgGesture === 'duck') {
-      this._isDucking = true;
-      this._duckHoldTimer = 0.22; // 220ms release buffer to bridge 1-frame tracking dropouts
-      this._push({ slide: true });
+      if (this._fistArmed) {
+        this._push({ slide: true });
+        this._fistArmed = false;
+      }
       this._pendingLaneGesture = null;
       this._pendingLaneTimer = 0;
       return;
     }
 
-    // Decay duck hold timer when hand is in frame but not explicitly in 'duck'
-    if (this._duckHoldTimer > 0) {
-      // If an explicit active gesture arrives (jump or lane), cancel duck immediately
-      if (fgGesture === 'jump' || fgGesture === 'lane_left' || fgGesture === 'lane_center' || fgGesture === 'lane_right') {
-        this._duckHoldTimer = 0;
-        this._isDucking = false;
-      } else {
-        this._duckHoldTimer -= dt;
-        if (this._duckHoldTimer <= 0) {
-          this._isDucking = false;
-        }
-      }
-    } else {
-      this._isDucking = false;
-    }
+    // Hand is visible and not in closed fist: re-arm fist action
+    this._fistArmed = true;
 
     // 2. JUMP (INSTANT PRIORITY)
     if (fgGesture === 'jump') {
-      this._isDucking = false;
-      this._duckHoldTimer = 0;
       this._push({ jump: true });
       this._pendingLaneGesture = null;
       this._pendingLaneTimer = 0;
@@ -120,12 +102,12 @@ export class FingerGestureControl extends BaseControl {
   }
 
   /**
-   * Return accumulated input commands including target lane and ducking hold.
+   * Return accumulated input commands including target lane.
    */
   consume() {
     const res = super.consume();
     res.targetLane = this._desiredLane;
-    res.isDucking = this._isDucking;
+    res.isDucking = false;
     return res;
   }
 }

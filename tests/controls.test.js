@@ -424,6 +424,46 @@ describe('FingerGestureControl (Stage 4: Kinematic Gestures)', () => {
     fgc.update(0.09);
     expect(fgc.consume().targetLane).toBe(0); // lane center confirmed!
   });
+
+  it('triggers slide once on closed fist and requires releasing fist before re-triggering', () => {
+    const mockVision = {
+      isReady: true,
+      currentState: {
+        fgGesture: 'duck',
+        fgSource: 'hand'
+      },
+      setMode: () => {},
+      initWebcam: () => {}
+    };
+
+    const fgc = new FingerGestureControl(mockVision);
+    fgc.enable();
+
+    // 1. Initial fist triggers slide
+    fgc.update(0.016);
+    expect(fgc.consume().slide).toBe(true);
+
+    // 2. Continuous fist hold on subsequent frames does NOT trigger slide again
+    fgc.update(0.016);
+    expect(fgc.consume().slide).toBeFalsy();
+
+    fgc.update(0.016);
+    expect(fgc.consume().slide).toBeFalsy();
+
+    // 3. Releasing fist (e.g. neutral gesture or lane) re-arms the fist trigger
+    mockVision.currentState.fgGesture = 'lane_center';
+    fgc.update(0.016);
+    fgc.consume();
+
+    // 4. Clenching fist again fires slide once more
+    mockVision.currentState.fgGesture = 'duck';
+    fgc.update(0.016);
+    expect(fgc.consume().slide).toBe(true);
+
+    // 5. Holding fist again does not fire slide
+    fgc.update(0.016);
+    expect(fgc.consume().slide).toBeFalsy();
+  });
 });
 
 describe('HandSwipeControl (Air Swipes + Seamless Fallback)', () => {

@@ -315,24 +315,11 @@ export class Runner {
       }
     }
 
-    // Duck / slide (sustained hold via isDucking vs impulse via slide)
-    if (input.isDucking) {
+    // Duck / slide (timed action strictly governed by slideDuration and slideCooldown)
+    const wantsDuck = Boolean(input.isDucking || input.slide);
+    if (wantsDuck) {
       if (this.state === PlayerState.JUMPING) {
         // Fast drop down when ducking during jump
-        this.yVelocity = -this.jumpSpeed * 1.5;
-        this.slideTimer = this.slideDuration;
-      } else {
-        if (this.state !== PlayerState.SLIDING) {
-          if (this.soundFx) this.soundFx.playSlide();
-        }
-        this.state = PlayerState.SLIDING;
-        // Keep slideTimer active while duck is held so player never prematurely stands up
-        this.slideTimer = this.slideDuration;
-        this.slideCooldown = 0;
-      }
-    } else if (input.slide) {
-      if (this.state === PlayerState.JUMPING) {
-        // Fast drop down when pressing "down" during jump
         this.yVelocity = -this.jumpSpeed * 1.5;
         this.slideTimer = this.slideDuration;
         if (this.soundFx) this.soundFx.playSlide();
@@ -367,10 +354,10 @@ export class Runner {
 
     // Micro-delay cooldown timers between identical states
     if (this.jumpCooldown > 0) {
-      this.jumpCooldown -= dt;
+      this.jumpCooldown = Math.max(0, this.jumpCooldown - dt);
     }
     if (this.slideCooldown > 0) {
-      this.slideCooldown -= dt;
+      this.slideCooldown = Math.max(0, this.slideCooldown - dt);
     }
 
     // 1. Horizontal lane transition (snappy spring lerp)

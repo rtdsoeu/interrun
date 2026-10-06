@@ -137,26 +137,31 @@ describe('Runner Physics, Lane Clamping, and Hitbox Math', () => {
     expect(runner.yVelocity).toBe(0);
   });
 
-  it('maintains SLIDING state continuously while isDucking is held without premature standing or cooldown lockout', () => {
-    // Initial duck hold
+  it('enforces slideDuration and slideCooldown even if ducking input is continuously held', () => {
+    // 1. Initial slide trigger
     runner.handleInput({ laneDelta: 0, jump: false, slide: false, isDucking: true });
     expect(runner.state).toBe(PlayerState.SLIDING);
     expect(runner.slideTimer).toBe(runner.slideDuration);
 
-    // Simulate 2 seconds of continuous duck hold (far exceeds the 0.75s slideDuration)
-    for (let i = 0; i < 40; i++) {
+    // 2. Continuous duck input over slideDuration (e.g. 0.75s)
+    const steps = Math.ceil(runner.slideDuration / 0.05);
+    for (let i = 0; i < steps; i++) {
       runner.update(0.05, 10);
       runner.handleInput({ laneDelta: 0, jump: false, slide: false, isDucking: true });
-      expect(runner.state).toBe(PlayerState.SLIDING);
-      expect(runner.slideCooldown).toBe(0);
     }
 
-    // Release duck hold
-    runner.handleInput({ laneDelta: 0, jump: false, slide: false, isDucking: false });
-    // Should now finish remaining slideTimer and smoothly transition back to RUNNING
-    for (let i = 0; i < 20; i++) {
-      runner.update(0.05, 10);
-    }
+    // Must stand up to RUNNING after slideDuration expires, and activate slideCooldown
     expect(runner.state).toBe(PlayerState.RUNNING);
+    expect(runner.slideCooldown).toBeGreaterThan(0);
+
+    // 3. While slideCooldown > 0, duck input cannot trigger SLIDING
+    runner.handleInput({ laneDelta: 0, jump: false, slide: false, isDucking: true });
+    expect(runner.state).toBe(PlayerState.RUNNING);
+
+    // 4. Once cooldown decays, next slide is permitted
+    runner.update(runner.slideCooldown + 0.01, 10);
+    expect(runner.slideCooldown).toBe(0);
+    runner.handleInput({ laneDelta: 0, jump: false, slide: false, isDucking: true });
+    expect(runner.state).toBe(PlayerState.SLIDING);
   });
 });
