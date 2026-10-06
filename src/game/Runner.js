@@ -315,22 +315,9 @@ export class Runner {
       }
     }
 
-    // Duck / slide (sustained hold via isDucking vs impulse via slide)
-    if (input.isDucking) {
-      if (this.state === PlayerState.JUMPING) {
-        // Fast drop down when ducking during jump
-        this.yVelocity = -this.jumpSpeed * 1.5;
-        this.slideTimer = this.slideDuration;
-      } else {
-        if (this.state !== PlayerState.SLIDING) {
-          if (this.soundFx) this.soundFx.playSlide();
-        }
-        this.state = PlayerState.SLIDING;
-        // Keep slideTimer active while duck is held so player never prematurely stands up
-        this.slideTimer = this.slideDuration;
-        this.slideCooldown = 0;
-      }
-    } else if (input.slide) {
+    // Duck / slide
+    const wantsDuck = Boolean(input.isDucking || input.slide);
+    if (wantsDuck) {
       if (this.state === PlayerState.JUMPING) {
         // Fast drop down when pressing "down" during jump
         this.yVelocity = -this.jumpSpeed * 1.5;

@@ -1,5 +1,5 @@
 /**
- * HandSwipeControl — Stage 5: Air Swipes control with fallback composition.
+ * HandSwipeControl — Stage 5: Air Swipes control.
  *
  * Contactless dynamic hand swipes in front of the webcam:
  *   - Swipe LEFT  -> step 1 lane left (laneDelta: -1)
@@ -10,13 +10,9 @@
  * Each swipe event contains a monotonic hsSwipeId from the vision worker,
  * ensuring each detected gesture is consumed exactly once by the game loop.
  *
- * Employs composition with KeyboardControl for keyboard fallback,
- * while maintaining touch swipe fallback for touch devices.
- *
  * Vision Worker mode: 'handswipe'
  */
 import { BaseControl } from './BaseControl.js';
-import { KeyboardControl } from './KeyboardControl.js';
 
 export class HandSwipeControl extends BaseControl {
   constructor(visionManager) {
@@ -24,29 +20,30 @@ export class HandSwipeControl extends BaseControl {
     this.vision = visionManager;
     this._lastProcessedSwipeId = 0;
 
-    // Delegated keyboard fallback (WASD / Arrows / Space)
-    this._keyboardFallback = new KeyboardControl();
+    // Fallback keyboard controls for low-light emergency backup
+    this._heldKeys = new Set();
+    this._laneArmed = true;
+    this._jumpArmed = true;
+    this._slideArmed = true;
+    this._onKD = (e) => this._keyDown(e);
+    this._onKU = (e) => this._keyUp(e);
 
-    // Touch fallback state
+    // Fallback touch controls
     this._touchStartX = 0;
     this._touchStartY = 0;
     this._touchDown = false;
     this._touchTriggered = false;
-
     this._onTouchStart = (e) => {
-      if (this._isUI(e?.target)) return;
-      const t = e?.touches?.[0];
-      if (!t) return;
+      if (this._isUI(e.target)) return;
+      const t = e.touches[0];
       this._touchStartX = t.clientX;
       this._touchStartY = t.clientY;
       this._touchDown = true;
       this._touchTriggered = false;
     };
-
     this._onTouchMove = (e) => {
       if (!this._touchDown || this._touchTriggered) return;
-      const t = e?.touches?.[0];
-      if (!t) return;
+      const t = e.touches[0];
       const dx = t.clientX - this._touchStartX;
       const dy = t.clientY - this._touchStartY;
       if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy)) {
@@ -57,7 +54,6 @@ export class HandSwipeControl extends BaseControl {
         this._touchTriggered = true;
       }
     };
-
     this._onTouchEnd = () => {
       this._touchDown = false;
       this._touchTriggered = false;
@@ -69,22 +65,14 @@ export class HandSwipeControl extends BaseControl {
     return !!el.closest('button, a, input, select, [data-no-swipe]');
   }
 
-  _keyDown(e) {
-    this._keyboardFallback._keyDown(e);
-  }
-
-  _keyUp(e) {
-    this._keyboardFallback._keyUp(e);
-  }
-
   _onEnable() {
     if (this.vision) {
       this.vision.setMode('handswipe');
       this.vision.initWebcam();
     }
     this._lastProcessedSwipeId = 0;
-    this._keyboardFallback.enable();
-
+    window.addEventListener('keydown', this._onKD);
+    window.addEventListener('keyup',   this._onKU);
     window.addEventListener('touchstart', this._onTouchStart, { passive: true });
     window.addEventListener('touchmove',  this._onTouchMove,  { passive: true });
     window.addEventListener('touchend',   this._onTouchEnd,   { passive: true });
@@ -92,13 +80,50 @@ export class HandSwipeControl extends BaseControl {
 
   _onDisable() {
     this._lastProcessedSwipeId = 0;
-    this._keyboardFallback.disable();
-
+    window.removeEventListener('keydown', this._onKD);
+    window.removeEventListener('keyup',   this._onKU);
     window.removeEventListener('touchstart', this._onTouchStart);
     window.removeEventListener('touchmove',  this._onTouchMove);
     window.removeEventListener('touchend',   this._onTouchEnd);
+    this._heldKeys.clear();
+    this._laneArmed = this._jumpArmed = this._slideArmed = true;
     this._touchDown = false;
-    this._touchTriggered = false;
+  }
+
+  _keyDown(e) {
+    if (this._heldKeys.has(e.code)) return;
+    this._heldKeys.add(e.code);
+
+    switch (e.code) {
+      case 'ArrowLeft':
+      case 'KeyA':
+        if (this._laneArmed) { this._push({ laneDelta: -1 }); this._laneArmed = false; }
+        break;
+      case 'ArrowRight':
+      case 'KeyD':
+        if (this._laneArmed) { this._push({ laneDelta: 1 }); this._laneArmed = false; }
+        break;
+      case 'ArrowUp':
+      case 'KeyW':
+      case 'Space':
+        if (this._jumpArmed) { this._push({ jump: true }); this._jumpArmed = false; }
+        e.preventDefault();
+        break;
+      case 'ArrowDown':
+      case 'KeyS':
+        if (this._slideArmed) { this._push({ slide: true }); this._slideArmed = false; }
+        e.preventDefault();
+        break;
+    }
+  }
+
+  _keyUp(e) {
+    this._heldKeys.delete(e.code);
+    const noLane = !this._heldKeys.has('ArrowLeft') && !this._heldKeys.has('KeyA') &&
+                   !this._heldKeys.has('ArrowRight') && !this._heldKeys.has('KeyD');
+    if (noLane) this._laneArmed = true;
+    if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') this._jumpArmed  = true;
+    if (e.code === 'ArrowDown' || e.code === 'KeyS')                      this._slideArmed = true;
   }
 
   update(_dt) {
@@ -127,16 +152,5 @@ export class HandSwipeControl extends BaseControl {
         this._push({ slide: true });
         break;
     }
-  }
-
-  consume() {
-    const primary = super.consume();
-    const kb = this._keyboardFallback.consume();
-
-    return {
-      laneDelta: primary.laneDelta !== 0 ? primary.laneDelta : (kb.laneDelta || 0),
-      jump: Boolean(primary.jump || kb.jump),
-      slide: Boolean(primary.slide || kb.slide)
-    };
   }
 }

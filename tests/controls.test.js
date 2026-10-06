@@ -424,46 +424,6 @@ describe('FingerGestureControl (Stage 4: Kinematic Gestures)', () => {
     fgc.update(0.09);
     expect(fgc.consume().targetLane).toBe(0); // lane center confirmed!
   });
-
-  it('bridges single-frame tracking flicker during closed fist duck hold and releases on new gesture', () => {
-    const mockVision = {
-      isReady: true,
-      currentState: {
-        fgGesture: 'duck',
-        fgSource: 'hand'
-      },
-      setMode: () => {},
-      initWebcam: () => {}
-    };
-
-    const fgc = new FingerGestureControl(mockVision);
-    fgc.enable();
-
-    // 1. Initial ducking frame
-    fgc.update(0.016);
-    let res = fgc.consume();
-    expect(res.isDucking).toBe(true);
-    expect(res.slide).toBe(true);
-
-    // 2. Tracking flicker: fgGesture flickers null for 1-2 frames while hand remains visible
-    mockVision.currentState.fgGesture = null;
-    fgc.update(0.033); // 33ms jitter
-    res = fgc.consume();
-    expect(res.isDucking).toBe(true); // Buffer holds ducking alive!
-
-    fgc.update(0.033);
-    res = fgc.consume();
-    expect(res.isDucking).toBe(true);
-
-    // 3. Explicit jump arrives: must immediately release ducking and trigger jump
-    mockVision.currentState.fgGesture = 'jump';
-    fgc.update(0.016);
-    res = fgc.consume();
-    expect(res.isDucking).toBe(false);
-    expect(res.jump).toBe(true);
-
-    fgc.disable();
-  });
 });
 
 describe('HandSwipeControl (Air Swipes + Seamless Fallback)', () => {

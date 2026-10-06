@@ -22,7 +22,6 @@ export class FingerGestureControl extends BaseControl {
 
     /** Ducking flag */
     this._isDucking = false;
-    this._duckHoldTimer = 0;
 
     /** Lane stability confirmation buffer */
     this._pendingLaneGesture = null;
@@ -36,7 +35,6 @@ export class FingerGestureControl extends BaseControl {
     }
     this._desiredLane = 0;
     this._isDucking = false;
-    this._duckHoldTimer = 0;
     this._pendingLaneGesture = null;
     this._pendingLaneTimer = 0;
   }
@@ -44,7 +42,6 @@ export class FingerGestureControl extends BaseControl {
   _onDisable() {
     this._desiredLane = 0;
     this._isDucking = false;
-    this._duckHoldTimer = 0;
     this._pendingLaneGesture = null;
     this._pendingLaneTimer = 0;
   }
@@ -54,52 +51,34 @@ export class FingerGestureControl extends BaseControl {
 
     const { fgGesture, fgSource } = this.vision.currentState;
 
-    // No tracking — reliably reset ducking and lane change buffer immediately
+    // No tracking — reliably reset ducking and lane change buffer
     if (!fgSource) {
       this._isDucking = false;
-      this._duckHoldTimer = 0;
       this._pendingLaneGesture = null;
       this._pendingLaneTimer = 0;
       return;
     }
 
-    // 1. DUCK / SLIDE (INSTANT TRIGGER WITH SUSTAINED RELEASE BUFFER)
+    // Ducking hold reset by default (active only during explicit 'duck' gesture)
+    this._isDucking = (fgGesture === 'duck');
+
+    // 1. INSTANT ACTIONS (trigger immediately, interrupt transitions)
     if (fgGesture === 'duck') {
-      this._isDucking = true;
-      this._duckHoldTimer = 0.22; // 220ms release buffer to bridge 1-frame tracking dropouts
       this._push({ slide: true });
       this._pendingLaneGesture = null;
       this._pendingLaneTimer = 0;
       return;
     }
 
-    // Decay duck hold timer when hand is in frame but not explicitly in 'duck'
-    if (this._duckHoldTimer > 0) {
-      // If an explicit active gesture arrives (jump or lane), cancel duck immediately
-      if (fgGesture === 'jump' || fgGesture === 'lane_left' || fgGesture === 'lane_center' || fgGesture === 'lane_right') {
-        this._duckHoldTimer = 0;
-        this._isDucking = false;
-      } else {
-        this._duckHoldTimer -= dt;
-        if (this._duckHoldTimer <= 0) {
-          this._isDucking = false;
-        }
-      }
-    } else {
-      this._isDucking = false;
-    }
-
-    // 2. JUMP (INSTANT PRIORITY)
     if (fgGesture === 'jump') {
       this._isDucking = false;
-      this._duckHoldTimer = 0;
       this._push({ jump: true });
       this._pendingLaneGesture = null;
       this._pendingLaneTimer = 0;
       return;
     }
 
-    // 3. LANE SWITCHES (requires ~80ms stability confirmation
+    // 2. LANE SWITCHES (requires ~80ms stability confirmation
     // so transitioning curled fingers do not cause false lane shifts)
     if (fgGesture === 'lane_left' || fgGesture === 'lane_center' || fgGesture === 'lane_right') {
       if (this._pendingLaneGesture === fgGesture) {

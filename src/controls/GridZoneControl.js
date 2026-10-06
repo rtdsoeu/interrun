@@ -1,100 +1,91 @@
 /**
- * GridZoneControl — Reusable 3×3 Grid Computer Vision Control.
+ * GridZoneControl — shared 3×3 grid implementation for zone-based CV controls.
  *
- * Divides the camera frame into a 3×3 grid:
+ * Stage 2 (ZoneControl) and Stage 3 (HandZoneControl) are identical in logic;
+ * they differ only in the CV mode name and the currentState keys they read.
+ * This class is parameterized with a config object so the algorithm lives once.
+ *
+ * Grid layout:
  *  ┌──────┬──────┬──────┐
- *  │  J←  │  J↑  │  J→  │  ← top: jump
+ *  │  J←  │  J↑  │  J→  │  ← top row:  jump
  *  ├──────┼──────┼──────┤
- *  │  ←   │ IDLE │  →   │  ← mid: lane change
+ *  │  ←   │ IDLE │  →   │  ← mid row:  lane change
  *  ├──────┼──────┼──────┤
- *  │  S←  │  S↓  │  S→  │  ← bot: duck / slide
+ *  │  S←  │  S↓  │  S→  │  ← bot row:  duck / slide
  *  └──────┴──────┴──────┘
  *    L       C       R
  *
- * Parameterized by:
- *  - mode: VisionManager mode string ('zone', 'handzone', etc.)
- *  - colKey: currentState column property ('zoneCol', 'hzCol')
- *  - rowKey: currentState row property ('zoneRow', 'hzRow')
- *  - sourceKey: currentState source property ('zoneSource', 'hzSource')
+ * Do not instantiate directly — use the ZoneControl / HandZoneControl factories.
  */
 import { BaseControl } from './BaseControl.js';
 
 export class GridZoneControl extends BaseControl {
   /**
    * @param {import('../vision/VisionManager.js').VisionManager} visionManager
-   * @param {object} config
-   * @param {string} config.mode - Vision mode to activate
-   * @param {string} config.colKey - Column key in currentState ('L' | 'C' | 'R')
-   * @param {string} config.rowKey - Row key in currentState ('top' | 'mid' | 'bot')
-   * @param {string} config.sourceKey - Tracking source key in currentState
+   * @param {object} cfg
+   * @param {string} cfg.mode      - CV worker mode: 'zone' | 'handzone'
+   * @param {string} cfg.colKey    - currentState key for column: 'zoneCol' | 'hzCol'
+   * @param {string} cfg.rowKey    - currentState key for row:    'zoneRow' | 'hzRow'
+   * @param {string} cfg.sourceKey - currentState key for source: 'zoneSource' | 'hzSource'
    */
   constructor(visionManager, { mode, colKey, rowKey, sourceKey }) {
     super();
-    this.vision = visionManager;
-    this.config = { mode, colKey, rowKey, sourceKey };
+    this._vision    = visionManager;
+    this._mode      = mode;
+    this._colKey    = colKey;
+    this._rowKey    = rowKey;
+    this._sourceKey = sourceKey;
 
-    // Absolute target lane: -1 (L), 0 (C), 1 (R)
+    /** @type {-1|0|1} Absolute target lane */
     this._desiredLane = 0;
-
-    // Ducking flag (active while zone is bot)
+    /** Whether the duck posture should be held this frame */
     this._isDucking = false;
   }
 
   _onEnable() {
-    if (this.vision) {
-      this.vision.setMode(this.config.mode);
-      this.vision.initWebcam();
+    if (this._vision) {
+      this._vision.setMode(this._mode);
+      this._vision.initWebcam();
     }
     this._desiredLane = 0;
-    this._isDucking = false;
+    this._isDucking   = false;
   }
 
   _onDisable() {
     this._desiredLane = 0;
-    this._isDucking = false;
+    this._isDucking   = false;
   }
 
   update(_dt) {
-    if (!this._enabled || !this.vision || !this.vision.isReady) return;
+    if (!this._enabled || !this._vision?.isReady) return;
 
-    const state = this.vision.currentState;
-    const source = state[this.config.sourceKey];
+    const state  = this._vision.currentState;
+    const col    = state[this._colKey];
+    const row    = state[this._rowKey];
+    const source = state[this._sourceKey];
 
-    // No tracking detected — reset ducking and preserve current lane
+    // No tracking signal — release duck, preserve current lane
     if (!source) {
       this._isDucking = false;
       return;
     }
 
-    const col = state[this.config.colKey];
-    const row = state[this.config.rowKey];
+    // Absolute lane driven by column zone
+    if      (col === 'L') this._desiredLane = -1;
+    else if (col === 'R') this._desiredLane =  1;
+    else                  this._desiredLane =  0;
 
-    // 1. Absolute lane positioning:
-    // Left zone (-1), Right zone (+1), Center zone (0)
-    if (col === 'L') {
-      this._desiredLane = -1;
-    } else if (col === 'R') {
-      this._desiredLane = 1;
-    } else {
-      this._desiredLane = 0;
-    }
-
-    // 2. Absolute ducking: while zone is bot — runner ducks
+    // Duck is a held state, not an impulse — active as long as zone is bottom
     this._isDucking = (row === 'bot');
 
-    // 3. Continuous jump: while zone is top — runner jumps repeatedly
-    if (row === 'top') {
-      this._push({ jump: true });
-    }
+    // Jump is a repeated impulse while zone is top (bunny-hop)
+    if (row === 'top') this._push({ jump: true });
   }
 
-  /**
-   * Return accumulated input commands including target lane and ducking hold.
-   */
   consume() {
-    const res = super.consume();
-    res.targetLane = this._desiredLane;
-    res.isDucking = this._isDucking;
-    return res;
+    const result = super.consume();
+    result.targetLane = this._desiredLane;
+    result.isDucking  = this._isDucking;
+    return result;
   }
 }
