@@ -921,5 +921,84 @@ describe('Camera Error & Fallback System', () => {
 });
 
 
+describe('OneEuroFilter and OneEuroFilter2D (Adaptive Low-Pass Filtering)', () => {
+  it('returns initial raw value on first sample and initializes tracking', async () => {
+    const { OneEuroFilter } = await import('../src/vision/OneEuroFilter.js');
+    const filter = new OneEuroFilter(1.0, 0.01, 1.0);
+    const val = filter.filter(0.5, 1000);
+    expect(val).toBe(0.5);
+  });
 
+  it('suppresses stationary high-frequency jitter at low speeds', async () => {
+    const { OneEuroFilter } = await import('../src/vision/OneEuroFilter.js');
+    const filter = new OneEuroFilter(0.8, 0.01, 1.0); // minCutoff = 0.8 Hz (heavy smoothing at rest)
+    
+    // Simulate resting head with 30 FPS jitter (+- 0.02 around 0.5)
+    let t = 1000;
+    filter.filter(0.5, t);
+    const rawSamples = [];
+    const filteredSamples = [];
+
+    for (let i = 1; i <= 20; i++) {
+      t += 33.3; // ~30 FPS
+      const jitter = (i % 2 === 0 ? 0.02 : -0.02);
+      const raw = 0.5 + jitter;
+      const filtered = filter.filter(raw, t);
+      rawSamples.push(raw);
+      filteredSamples.push(filtered);
+    }
+
+    // Variance of filtered samples must be significantly lower than raw jitter
+    const rawVar = rawSamples.reduce((s, v) => s + Math.pow(v - 0.5, 2), 0) / rawSamples.length;
+    const filteredVar = filteredSamples.reduce((s, v) => s + Math.pow(v - 0.5, 2), 0) / filteredSamples.length;
+
+    expect(filteredVar).toBeLessThan(rawVar * 0.35); // at least 65% noise reduction
+  });
+
+  it('increases cutoff frequency and tracks rapid intentional steps with minimal lag', async () => {
+    const { OneEuroFilter } = await import('../src/vision/OneEuroFilter.js');
+    const filter = new OneEuroFilter(1.0, 8.0, 1.0); // beta = 8.0 for normalized coordinate speed adaptation
+    
+    // Resting at 0.2
+    filter.filter(0.2, 1000);
+    filter.filter(0.2, 1033);
+
+    // Sudden rapid leap to 0.8 (e.g. deliberate head/hand move across zones)
+    // Within 2 frames (66ms) at high velocity, filter should rapidly adapt
+    const f1 = filter.filter(0.8, 1066);
+    const f2 = filter.filter(0.8, 1100);
+
+    expect(f2).toBeGreaterThan(0.65); // rapidly reaches close to 0.8 due to beta expansion
+  });
+
+  it('properly resets historical state', async () => {
+    const { OneEuroFilter } = await import('../src/vision/OneEuroFilter.js');
+    const filter = new OneEuroFilter(1.0, 0.01, 1.0);
+    filter.filter(0.2, 1000);
+    filter.filter(0.3, 1033);
+    expect(filter.xPrev).not.toBeNull();
+
+    filter.reset();
+    expect(filter.xPrev).toBeNull();
+    expect(filter.tPrev).toBeNull();
+    expect(filter.dxPrev).toBe(0);
+
+    // After reset, next sample is treated as first sample
+    const nextVal = filter.filter(0.9, 2000);
+    expect(nextVal).toBe(0.9);
+  });
+
+  it('filters 2D coordinates independently in OneEuroFilter2D', async () => {
+    const { OneEuroFilter2D } = await import('../src/vision/OneEuroFilter.js');
+    const filter2D = new OneEuroFilter2D(1.0, 0.01, 1.0);
+    const pt1 = filter2D.filter(0.4, 0.6, 1000);
+    expect(pt1).toEqual({ x: 0.4, y: 0.6 });
+
+    const pt2 = filter2D.filter(0.42, 0.58, 1033);
+    expect(pt2.x).toBeLessThan(0.42);
+    expect(pt2.x).toBeGreaterThan(0.40);
+    expect(pt2.y).toBeGreaterThan(0.58);
+    expect(pt2.y).toBeLessThan(0.60);
+  });
+});
 

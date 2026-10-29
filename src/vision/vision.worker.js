@@ -1,4 +1,5 @@
 import { FilesetResolver, FaceLandmarker, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
+import { OneEuroFilter2D } from './OneEuroFilter.js';
 
 // Polyfill minimal document / window for MediaPipe / Emscripten inside Web Worker on iOS / WebKit
 if (typeof self.document === 'undefined') {
@@ -174,6 +175,12 @@ let hsLastKnownPos = null;       // { x, y, time, vx, vy } for Exit Flick detect
 
 // Zone hysteresis — prevents jitter when hand/face hovers near a zone boundary.
 // A zone transition is committed only when the point crosses (threshold ± HYSTERESIS_BAND).
+// 1-Euro adaptive low-pass filters for noise and tremor reduction
+// Dynamic cutoff: low cutoff at rest suppresses tremor; increases with velocity for zero lag.
+const noseFilter = new OneEuroFilter2D(0.8, 6.0, 1.0);       // Tuned for normalized head motion [0..1]
+const handZoneFilter = new OneEuroFilter2D(1.0, 7.0, 1.0);   // Tuned for normalized 3x3 hand positioning
+const handSwipeFilter = new OneEuroFilter2D(1.2, 8.0, 1.0);  // Tuned for normalized air swipes
+
 const HYSTERESIS_BAND = 0.04; // 4% dead-band around each zone boundary
 let zoneHyst = { col: 'C', row: 'mid' }; // committed state for ZoneControl (Stage 2)
 let hzHyst   = { col: 'C', row: 'mid' }; // committed state for HandZoneControl (Stage 3)
@@ -184,6 +191,10 @@ function resetCalibration() {
   baselineTorsoY = null;
   prevHandY = null;
   handVelocityY = 0;
+  // 1-Euro filters
+  noseFilter.reset();
+  handZoneFilter.reset();
+  handSwipeFilter.reset();
   // HandSwipe
   hsTrail = [];
   hsLastSwipe = null;
@@ -853,15 +864,18 @@ function processZone(bitmap, timestamp) {
   const faceResults = faceLandmarker.detectForVideo(bitmap, timestamp);
   if (faceResults?.faceLandmarks && faceResults.faceLandmarks.length > 0) {
     const face = faceResults.faceLandmarks[0];
-    const nose = face[1];
-    const mx = 1 - nose.x; // mirrored X
+    const rawNose = face[1];
+    const filteredNose = (timestamp && timestamp > 0)
+      ? noseFilter.filter(rawNose.x, rawNose.y, timestamp)
+      : rawNose;
+    const mx = 1 - filteredNose.x; // mirrored X
 
-    const rawCol = toColZoneFace(nose.x);
-    const rawRow = toRowZoneFace(nose.y);
+    const rawCol = toColZoneFace(filteredNose.x);
+    const rawRow = toRowZoneFace(filteredNose.y);
 
     // Commit zone change only when clearly past threshold + dead-band
     const col = applyColHysteresis(mx, rawCol, zoneHyst.col, 0.40, 0.60);
-    const row = applyRowHysteresis(nose.y, rawRow, zoneHyst.row, 0.35, 0.72);
+    const row = applyRowHysteresis(filteredNose.y, rawRow, zoneHyst.row, 0.35, 0.72);
     zoneHyst.col = col;
     zoneHyst.row = row;
 
@@ -871,11 +885,12 @@ function processZone(bitmap, timestamp) {
 
     state.debugText = zoneDebugText(col, row, '👤');
     state.points = [
-      { x: mx, y: nose.y, color: '#00e5ff', r: 7 }
+      { x: mx, y: filteredNose.y, color: '#00e5ff', r: 7 }
     ];
     return state;
   }
 
+  noseFilter.reset();
   zoneHyst = { col: 'C', row: 'mid' };
   state.zoneSource = null;
   state.debugText  = '👤 Show face in camera';
@@ -897,7 +912,10 @@ function processHandZone(bitmap, timestamp) {
   const handResults = handLandmarker.detectForVideo(bitmap, timestamp);
   if (handResults?.landmarks && handResults.landmarks.length > 0) {
     const hand = handResults.landmarks[0];
-    const pc = palmCenter(hand);
+    const rawPc = palmCenter(hand);
+    const pc = (timestamp && timestamp > 0)
+      ? handZoneFilter.filter(rawPc.x, rawPc.y, timestamp)
+      : rawPc;
     const mx = 1 - pc.x; // mirrored X
 
     const rawCol = toColZone(pc.x);
@@ -1244,7 +1262,10 @@ function processHandSwipe(bitmap, timestamp) {
   // HAND DETECTED BRANCH
   // ---------------------------------------------------------------------------
   const hand = results.landmarks[0];
-  const pc = palmCenter(hand);
+  const rawPc = palmCenter(hand);
+  const pc = (timestamp && timestamp > 0)
+    ? handSwipeFilter.filter(rawPc.x, rawPc.y, timestamp)
+    : rawPc;
   const handX = 1 - pc.x; // mirrored: 0 = player-left, 1 = player-right
   const handY = pc.y;     // 0 = top, 1 = bottom
 
