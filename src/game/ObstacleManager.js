@@ -4,6 +4,7 @@ export const ObstacleType = {
   JUMP_BARRIER: 'jump_barrier',   // low barrier — must jump over
   SLIDE_BARRIER: 'slide_barrier', // high barrier — must slide underneath
   TRAIN_BLOCKER: 'train_blocker', // train car / solid obstacle — must switch lanes
+  FALLING_HAZARD: 'falling_hazard', // sudden overhead cargo drop — must switch lanes
   COIN: 'coin'
 };
 
@@ -60,10 +61,13 @@ export class ObstacleManager {
     this._tempCenter = new THREE.Vector3();
 
     // Object pools to completely prevent runtime allocations during gameplay
+    this.totalDistance = 0;
+    this._lastFallingHazardDist = -999;
     this._pools = {
       [ObstacleType.JUMP_BARRIER]: [],
       [ObstacleType.SLIDE_BARRIER]: [],
-      [ObstacleType.TRAIN_BLOCKER]: []
+      [ObstacleType.TRAIN_BLOCKER]: [],
+      [ObstacleType.FALLING_HAZARD]: []
     };
     this._coinPool = [];
 
@@ -95,6 +99,15 @@ export class ObstacleManager {
 
     this._geoTrain = new THREE.BoxGeometry(2.0, 2.6, 5.0);
     this._geoTrainLight = new THREE.SphereGeometry(0.14, 8, 8);
+
+    // Falling Hazard geometries
+    this._geoFallingCrate = new THREE.BoxGeometry(1.9, 1.8, 1.9);
+    this._geoCrateTrim = new THREE.BoxGeometry(1.94, 0.22, 1.94);
+    this._geoCrateTopBeacon = new THREE.CylinderGeometry(0.18, 0.24, 0.25, 8);
+    this._geoWarningDecal = new THREE.PlaneGeometry(2.3, 2.3);
+    this._geoWarningDecal.rotateX(-Math.PI / 2);
+    this._geoWarningRing = new THREE.RingGeometry(0.75, 1.05, 16);
+    this._geoWarningRing.rotateX(-Math.PI / 2);
 
     // Coin geometry
     this._coinGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.08, 16);
@@ -138,6 +151,41 @@ export class ObstacleManager {
       color: 0xffeedd
     });
 
+    // Falling Hazard materials
+    this._matFallingCrate = new THREE.MeshStandardMaterial({
+      color: 0x1e1b24,
+      roughness: 0.35,
+      metalness: 0.65
+    });
+
+    this._matCrateTrim = new THREE.MeshStandardMaterial({
+      color: 0xff4400,
+      roughness: 0.25,
+      metalness: 0.4,
+      emissive: 0xff3300,
+      emissiveIntensity: 0.6
+    });
+
+    this._matWarningBeacon = new THREE.MeshBasicMaterial({
+      color: 0xffaa00
+    });
+
+    this._matWarningDecal = new THREE.MeshBasicMaterial({
+      color: 0xff3300,
+      transparent: true,
+      opacity: 0.65,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    });
+
+    this._matWarningRing = new THREE.MeshBasicMaterial({
+      color: 0xffaa00,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    });
+
     this._matCoin = new THREE.MeshStandardMaterial({
       color: 0xffd700,
       roughness: 0.2,
@@ -151,10 +199,15 @@ export class ObstacleManager {
     if (!theme) return;
     if (theme.neonPalette && theme.neonPalette.length > 0) {
       this._matHazard.emissive.setHex(theme.neonPalette[1] || 0xff3d5e);
+      if (this._matCrateTrim) {
+        this._matCrateTrim.emissive.setHex(theme.neonPalette[0] || 0xff4400);
+      }
     }
   }
 
   reset() {
+    this.totalDistance = 0;
+    this._lastFallingHazardDist = -999;
     for (let i = 0; i < this.activeObstacles.length; i++) {
       this._recycleObstacle(this.activeObstacles[i]);
     }
@@ -189,6 +242,18 @@ export class ObstacleManager {
     const lanes = [-1, 0, 1];
     lanes.sort(() => Math.random() - 0.5);
 
+    // Rare Falling Hazard: distance >= 120m, spacing >= 220m, ~14% spawn chance or guaranteed after 400m
+    const distSinceLast = this.totalDistance - this._lastFallingHazardDist;
+    const canFalling = this.totalDistance >= 120 && distSinceLast >= 220;
+    if (canFalling && (Math.random() < 0.14 || distSinceLast >= 400)) {
+      this._lastFallingHazardDist = this.totalDistance;
+      const hazardLane = lanes[0];
+      this._spawnFallingHazard(hazardLane, zPosition);
+      const coinLane = lanes[1];
+      this._spawnCoinLine(coinLane, zPosition - 4, 3, 0.4);
+      return;
+    }
+
     const count = (difficulty > 0.35 && Math.random() > 0.4) ? 2 : 1;
 
     for (let i = 0; i < count; i++) {
@@ -211,6 +276,83 @@ export class ObstacleManager {
     if (freeLane !== undefined && Math.random() > 0.35) {
       this._spawnCoinLine(freeLane, zPosition - 5, 4, 0.5);
     }
+  }
+
+  _spawnFallingHazard(lane, z) {
+    const x = lane * this.laneWidth;
+    if (this._pools[ObstacleType.FALLING_HAZARD].length > 0) {
+      const obs = this._pools[ObstacleType.FALLING_HAZARD].pop();
+      obs.lane = lane;
+      obs.x = x;
+      obs.passed = false;
+      obs.currentY = 10.5;
+      obs.fallVelocity = 0;
+      obs.dropping = false;
+      obs.hasLanded = false;
+      obs.minY = 9.6;
+      obs.maxY = 11.4;
+      obs.crateGroup.position.set(0, 10.5, 0);
+      if (obs.decal) obs.decal.material.opacity = 0.65;
+      if (obs.ring) obs.ring.material.opacity = 0.75;
+      obs.mesh.position.set(x, 0, z);
+      obs.box.min.set(x - obs.halfW, 9.6, z - obs.halfD);
+      obs.box.max.set(x + obs.halfW, 11.4, z + obs.halfD);
+      this.obstacleGroup.add(obs.mesh);
+      this.activeObstacles.push(obs);
+      return;
+    }
+
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+
+    // 1. Ground warning decal and pulsating laser ring (cloned for independent opacity)
+    const decal = new THREE.Mesh(this._geoWarningDecal, this._matWarningDecal.clone());
+    decal.position.set(0, 0.02, 0);
+    const ring = new THREE.Mesh(this._geoWarningRing, this._matWarningRing.clone());
+    ring.position.set(0, 0.03, 0);
+    group.add(decal, ring);
+
+    // 2. Heavy cyber cargo crate subgroup
+    const crateGroup = new THREE.Group();
+    crateGroup.position.set(0, 10.5, 0);
+
+    const crate = new THREE.Mesh(this._geoFallingCrate, this._matFallingCrate);
+    crate.castShadow = true;
+    crate.receiveShadow = true;
+    crateGroup.add(crate);
+
+    const trimTop = new THREE.Mesh(this._geoCrateTrim, this._matCrateTrim);
+    trimTop.position.set(0, 0.6, 0);
+    const trimBot = new THREE.Mesh(this._geoCrateTrim, this._matCrateTrim);
+    trimBot.position.set(0, -0.6, 0);
+    crateGroup.add(trimTop, trimBot);
+
+    const beacon = new THREE.Mesh(this._geoCrateTopBeacon, this._matWarningBeacon);
+    beacon.position.set(0, 1.0, 0);
+    crateGroup.add(beacon);
+
+    group.add(crateGroup);
+    this.obstacleGroup.add(group);
+
+    this.activeObstacles.push({
+      type: ObstacleType.FALLING_HAZARD,
+      mesh: group,
+      crateGroup,
+      decal,
+      ring,
+      lane,
+      x,
+      halfW: 0.95,
+      currentY: 10.5,
+      minY: 9.6,
+      maxY: 11.4,
+      halfD: 0.95,
+      fallVelocity: 0,
+      dropping: false,
+      hasLanded: false,
+      box: new THREE.Box3(),
+      passed: false
+    });
   }
 
   _spawnJumpBarrier(lane, z) {
@@ -388,7 +530,13 @@ export class ObstacleManager {
     }
   }
 
-  update(dt, speed, difficulty = 0, runnerHitbox, onHit, onCoinCollected) {
+  update(dt, speed, difficulty = 0, runnerHitbox, onHit, onCoinCollected, currentDistance = null) {
+    if (currentDistance !== null && currentDistance !== undefined) {
+      this.totalDistance = currentDistance;
+    } else {
+      this.totalDistance += speed * dt;
+    }
+
     // 1. Advance furthest spawn front
     this.furthestZ += speed * dt;
     while (this.furthestZ > -150) {
@@ -403,7 +551,45 @@ export class ObstacleManager {
       obs.mesh.position.z += speed * dt;
       const currentZ = obs.mesh.position.z;
 
-      obs.box.min.set(obs.x - obs.halfW, obs.minY, currentZ - obs.halfD);
+      // Dynamic physics for FALLING_HAZARD
+      if (obs.type === ObstacleType.FALLING_HAZARD) {
+        if (!obs.hasLanded) {
+          // Trigger drop closer to the player: starts dropping at -Math.max(16, speed * 1.25)
+          const dropTriggerZ = -Math.max(16, speed * 1.25);
+          if (currentZ >= dropTriggerZ) {
+            obs.dropping = true;
+          }
+          if (obs.dropping) {
+            obs.fallVelocity += 58.0 * dt; // snappy metallic gravity acceleration
+            obs.currentY -= obs.fallVelocity * dt;
+            if (obs.currentY <= 0.9) {
+              obs.currentY = 0.9;
+              obs.hasLanded = true;
+              obs.dropping = false;
+              if (this.soundFx) this.soundFx.playHazardDrop();
+              if (this.onHazardLanded) this.onHazardLanded(obs);
+            }
+            obs.crateGroup.position.y = obs.currentY;
+          }
+          // Pulsate ground warning decal
+          if (obs.decal && obs.ring) {
+            const freq = obs.dropping ? 0.025 : 0.008;
+            const pulse = 0.4 + 0.5 * Math.sin(Date.now() * freq);
+            obs.decal.material.opacity = pulse;
+            obs.ring.material.opacity = Math.min(1.0, pulse * 1.15);
+          }
+          obs.minY = obs.currentY - 0.9;
+          obs.maxY = obs.currentY + 0.9;
+        } else {
+          // Fade warning decal after impact
+          if (obs.decal) obs.decal.material.opacity = Math.max(0.12, obs.decal.material.opacity - dt * 0.6);
+          if (obs.ring) obs.ring.material.opacity = Math.max(0.15, obs.ring.material.opacity - dt * 0.6);
+          obs.minY = 0.0;
+          obs.maxY = 1.8;
+        }
+      }
+
+      obs.box.min.set(obs.x - obs.halfW, Math.max(0, obs.minY), currentZ - obs.halfD);
       obs.box.max.set(obs.x + obs.halfW, obs.maxY, currentZ + obs.halfD);
 
       if (!obs.passed && checkObstacleCollision(runnerHitbox, obs)) {

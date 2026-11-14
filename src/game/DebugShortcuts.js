@@ -16,7 +16,7 @@ export class DebugShortcuts {
   /**
    * @param {object} params
    * @param {import('./Engine.js').Engine} params.engine
-   * @param {import('../ui/HUD.js').HUD} params.hud
+   * @param {import('../ui/Hud.js').Hud} params.hud
    * @param {import('../audio/SoundFx.js').SoundFx} params.soundFx
    */
   constructor({ engine, hud, soundFx }) {

@@ -1,7 +1,7 @@
 /**
  * GridZoneControl — shared 3×3 grid implementation for zone-based CV controls.
  *
- * Stage 2 (ZoneControl) and Stage 3 (HandZoneControl) are identical in logic;
+ * Stage 2 (FaceZoneControl) and Stage 3 (HandZoneControl) are identical in logic;
  * they differ only in the CV mode name and the currentState keys they read.
  * This class is parameterized with a config object so the algorithm lives once.
  *
@@ -15,7 +15,7 @@
  *  └──────┴──────┴──────┘
  *    L       C       R
  *
- * Do not instantiate directly — use the ZoneControl / HandZoneControl factories.
+ * Do not instantiate directly — use the FaceZoneControl / HandZoneControl factories.
  */
 import { BaseControl } from './BaseControl.js';
 

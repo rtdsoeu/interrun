@@ -1,5 +1,5 @@
 /**
- * ZoneControl — Stage 2: Face Zone CV 3×3 Grid Control.
+ * FaceZoneControl — Stage 2: Face Zone CV 3×3 Grid Control.
  *
  * Thin factory wrapper around GridZoneControl.
  * CV source: face nose-tip landmark.
@@ -7,7 +7,7 @@
  */
 import { GridZoneControl } from './GridZoneControl.js';
 
-export class ZoneControl extends GridZoneControl {
+export class FaceZoneControl extends GridZoneControl {
   constructor(visionManager) {
     super(visionManager, {
       mode:      'zone',

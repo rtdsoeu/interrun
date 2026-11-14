@@ -2,12 +2,12 @@
  * i18n — minimal localization system for InterRun.
  *
  * Usage:
- *   import { i18n } from './i18n/i18n.js';
+ *   import { i18n } from './i18n/I18n.js';
  *   i18n.t('menu.play')          // -> string in active language
  *   i18n.setLang('en')           // switch language
  *   i18n.onLangChange = (lang) => { ... } // language change callback
  */
-import { translations } from './translations.js';
+import { translations } from './Translations.js';
 
 const STORAGE_KEY = 'interrun_lang';
 const SUPPORTED = ['en', 'uk'];

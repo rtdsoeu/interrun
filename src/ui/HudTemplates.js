@@ -1,6 +1,6 @@
 /**
  * UI HTML Templates for InterRun HUD and Modals.
- * Extracted from HUD.js to maintain modularity, readability, and clean architecture.
+ * Extracted from Hud.js to maintain modularity, readability, and clean architecture.
  */
 export function getHUDHtml(t, i18n, state = {}) {
   const isMuted = !!state.soundMuted;
@@ -47,7 +47,7 @@ export function getHUDHtml(t, i18n, state = {}) {
             </button>
 
             <button id="btn-debug-hud" class="hud-panel hud-btn hud-btn-debug" data-no-swipe="true" title="${t('hud.debug')}">
-              <span class="hud-btn-icon">🛠️</span>
+              <span class="hud-btn-icon">🎮</span>
               <span class="hud-btn-text" data-i18n="hud.debug">${t('hud.debug')}</span>
             </button>
 
@@ -148,6 +148,7 @@ export function getHUDHtml(t, i18n, state = {}) {
         <button id="btn-play" class="btn btn-primary" data-i18n="menu.play">${t('menu.play')}</button>
         <button id="btn-open-settings" class="btn btn-ghost" style="border-color:rgba(255,255,255,0.25);" data-i18n="menu.settings">${t('menu.settings')}</button>
         <button id="btn-debug-menu" class="btn btn-ghost" style="border-color:rgba(0,229,255,0.4); color:var(--accent);" data-i18n="menu.debug">${t('menu.debug')}</button>
+        <button id="btn-telemetry-menu" class="btn btn-ghost" style="border-color:rgba(0,255,136,0.4); color:#00ff88;" data-i18n="menu.telemetry">${t('menu.telemetry')}</button>
         <button id="btn-open-skins" class="btn btn-ghost" data-i18n="menu.skins">${t('menu.skins')}</button>
       </div>
 
@@ -186,6 +187,7 @@ export function getHUDHtml(t, i18n, state = {}) {
       <div class="death-buttons">
         <button id="btn-restart" class="btn btn-primary" data-i18n="death.restart">${t('death.restart')}</button>
         <button id="btn-debug-restart" class="btn btn-ghost" style="border-color:rgba(0,229,255,0.4); color:var(--accent);" data-i18n="death.debug">${t('death.debug')}</button>
+        <button id="btn-telemetry-restart" class="btn btn-ghost" style="border-color:rgba(0,255,136,0.4); color:#00ff88;" data-i18n="death.telemetry">${t('death.telemetry')}</button>
       </div>
     </div>
 
@@ -493,6 +495,225 @@ export function getHUDHtml(t, i18n, state = {}) {
         <div style="display:flex; gap:12px; justify-content:flex-end; border-top:1px solid rgba(255,255,255,0.08); padding-top:16px; flex-wrap:wrap;">
           <button id="btn-cam-error-retry" class="btn btn-ghost" style="border-color:rgba(0,229,255,0.4); color:var(--accent); padding:10px 18px; font-size:13px;" data-i18n="modal.cam_error.retry">${t('modal.cam_error.retry')}</button>
           <button id="btn-cam-error-continue" class="btn btn-primary" style="padding:10px 22px; font-size:13px;" data-i18n="modal.cam_error.continue">${t('modal.cam_error.continue')}</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Telemetry & HCI Evaluation Modal -->
+    <div id="telemetry-modal" class="hidden" style="position:absolute; inset:0; border-radius:inherit; background:rgba(0,0,0,0.88); backdrop-filter:blur(18px); z-index:130; display:flex; align-items:center; justify-content:center; pointer-events:all;">
+      <div style="background:rgba(18,22,34,0.96); border:1px solid rgba(0,255,136,0.35); box-shadow:0 16px 48px rgba(0,0,0,0.85), 0 0 35px rgba(0,255,136,0.15); border-radius:20px; padding:24px; width:94%; max-width:640px; max-height:90vh; display:flex; flex-direction:column; gap:16px; color:#fff; overflow-y:auto;">
+
+        <!-- Header -->
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-size:20px; font-weight:800; color:#00ff88; display:flex; align-items:center; gap:8px;">
+              <span data-i18n="telemetry.title">${t('telemetry.title')}</span>
+            </div>
+            <div style="font-size:11px; color:rgba(255,255,255,0.6); margin-top:2px;" data-i18n="telemetry.subtitle">${t('telemetry.subtitle')}</div>
+          </div>
+          <button id="btn-close-telemetry" style="background:none; border:none; color:rgba(255,255,255,0.6); font-size:24px; cursor:pointer;">✕</button>
+        </div>
+
+        <!-- Tabs Navigation -->
+        <div style="display:flex; gap:8px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">
+          <button id="btn-telem-tab-stats" class="btn-ghost active" style="padding:8px 14px; font-size:12px; border-radius:8px; border-color:#00ff88; color:#00ff88;" data-i18n="telemetry.tab.stats">${t('telemetry.tab.stats')}</button>
+          <button id="btn-telem-tab-bench" class="btn-ghost" style="padding:8px 14px; font-size:12px; border-radius:8px;" data-i18n="telemetry.tab.benchmark">${t('telemetry.tab.benchmark')}</button>
+          <button id="btn-telem-tab-survey" class="btn-ghost" style="padding:8px 14px; font-size:12px; border-radius:8px;" data-i18n="telemetry.tab.survey">${t('telemetry.tab.survey')}</button>
+        </div>
+
+        <!-- TAB 1: Stats & Error Rates -->
+        <div id="telem-panel-stats" style="display:flex; flex-direction:column; gap:14px;">
+          <!-- 4 summary KPI cards -->
+          <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px;">
+            <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px; text-align:center;">
+              <div style="font-size:10px; color:rgba(255,255,255,0.5);" data-i18n="telemetry.stats.runs">${t('telemetry.stats.runs')}</div>
+              <div id="telem-kpi-runs" style="font-size:18px; font-weight:800; color:#00e5ff; margin-top:2px;">0</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px; text-align:center;">
+              <div style="font-size:10px; color:rgba(255,255,255,0.5);" data-i18n="telemetry.stats.distance">${t('telemetry.stats.distance')}</div>
+              <div id="telem-kpi-dist" style="font-size:18px; font-weight:800; color:#00ff88; margin-top:2px;">0 m</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px; text-align:center;">
+              <div style="font-size:10px; color:rgba(255,255,255,0.5);" data-i18n="telemetry.stats.avg_time">${t('telemetry.stats.avg_time')}</div>
+              <div id="telem-kpi-time" style="font-size:18px; font-weight:800; color:#ffd700; margin-top:2px;">0 s</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px; text-align:center;">
+              <div style="font-size:10px; color:rgba(255,255,255,0.5);" data-i18n="telemetry.stats.fatigue">${t('telemetry.stats.fatigue')}</div>
+              <div id="telem-kpi-fatigue" style="font-size:18px; font-weight:800; color:#ff6b35; margin-top:2px;">1.00</div>
+            </div>
+          </div>
+
+          <!-- Per-stage Table -->
+          <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:11px; text-align:left;">
+              <thead>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.7);">
+                  <th style="padding:6px;" data-i18n="telemetry.stats.col.stage">${t('telemetry.stats.col.stage')}</th>
+                  <th style="padding:6px;" data-i18n="telemetry.stats.col.dist">${t('telemetry.stats.col.dist')}</th>
+                  <th style="padding:6px;" data-i18n="telemetry.stats.col.errors">${t('telemetry.stats.col.errors')}</th>
+                  <th style="padding:6px;" data-i18n="telemetry.stats.col.reaction">${t('telemetry.stats.col.reaction')}</th>
+                  <th style="padding:6px;" data-i18n="telemetry.stats.col.fps">${t('telemetry.stats.col.fps')}</th>
+                </tr>
+              </thead>
+              <tbody id="telem-table-stages-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Export Actions -->
+          <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;">
+            <button id="btn-telem-clear" class="btn btn-ghost" style="padding:6px 12px; font-size:11px; border-color:rgba(255,80,80,0.3); color:#ff6666;" data-i18n="telemetry.btn.clear">${t('telemetry.btn.clear')}</button>
+            <div style="display:flex; gap:8px;">
+              <button id="btn-telem-export-csv" class="btn btn-ghost" style="padding:8px 14px; font-size:12px; border-color:rgba(0,255,136,0.4); color:#00ff88;" data-i18n="telemetry.btn.export_csv">${t('telemetry.btn.export_csv')}</button>
+              <button id="btn-telem-export-json" class="btn btn-ghost" style="padding:8px 14px; font-size:12px; border-color:rgba(0,229,255,0.4); color:var(--accent);" data-i18n="telemetry.btn.export_json">${t('telemetry.btn.export_json')}</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: Gesture Benchmark -->
+        <div id="telem-panel-bench" class="hidden" style="display:flex; flex-direction:column; gap:12px;">
+          <div style="font-size:12px; color:rgba(255,255,255,0.7); line-height:1.5;" data-i18n="telemetry.bench.desc">
+            ${t('telemetry.bench.desc')}
+          </div>
+
+          <!-- Target mode selection -->
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <span style="font-size:11px; font-weight:700; color:var(--accent);" data-i18n="telemetry.bench.select_stage">${t('telemetry.bench.select_stage')}</span>
+            <select id="bench-select-target" style="background:#182030; color:#fff; border:1px solid rgba(0,255,136,0.4); border-radius:6px; padding:6px 10px; font-size:12px; cursor:pointer; flex:1; min-width:200px;">
+              <option value="stage2">🎯 ${t('telemetry.bench.stage2')}</option>
+              <option value="stage3">✋ ${t('telemetry.bench.stage3')}</option>
+              <option value="stage4" selected>✌️ ${t('telemetry.bench.stage4')}</option>
+              <option value="stage5">👋 ${t('telemetry.bench.stage5')}</option>
+            </select>
+          </div>
+
+          <!-- Gesture Selection Buttons Row -->
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            <div style="font-size:11px; font-weight:700; color:rgba(255,255,255,0.7); text-transform:uppercase; letter-spacing:0.5px;" data-i18n="telemetry.bench.choose_gesture">
+              ${t('telemetry.bench.choose_gesture')}
+            </div>
+            <div id="bench-gesture-buttons" style="display:flex; gap:8px; flex-wrap:wrap;">
+              <!-- Populated dynamically via BenchmarkUI -->
+            </div>
+          </div>
+
+          <!-- Real-time Confidence Meter Card with Webcam Preview -->
+          <div id="bench-card-interactive" style="background:rgba(0,255,136,0.06); border:1px solid rgba(0,255,136,0.25); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:12px; user-select:none; touch-action:none; position:relative;">
+            
+            <!-- Target Gesture Header & Confidence Value -->
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <div style="font-size:11px; color:rgba(255,255,255,0.6); text-transform:uppercase; letter-spacing:0.5px;" data-i18n="telemetry.bench.selected_gesture">
+                  ${t('telemetry.bench.selected_gesture')}
+                </div>
+                <div id="bench-target-name" style="font-size:22px; font-weight:800; color:#fff; margin-top:2px;">--</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:11px; color:rgba(255,255,255,0.6); text-transform:uppercase; letter-spacing:0.5px;" data-i18n="telemetry.bench.confidence_title">
+                  ${t('telemetry.bench.confidence_title')}
+                </div>
+                <div id="bench-confidence-pct" style="font-size:28px; font-weight:900; font-family:monospace; color:#ff3d5e; transition:color 0.2s;">0%</div>
+              </div>
+            </div>
+
+            <!-- Floating Confidence Bar -->
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <div id="bench-confidence-track" style="width:100%; height:20px; background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.15); border-radius:10px; overflow:hidden; position:relative; box-shadow:inset 0 2px 5px rgba(0,0,0,0.7);">
+                <div id="bench-confidence-bar" style="width:0%; height:100%; border-radius:9px; background:linear-gradient(90deg, #ff3d5e, #ff6b35); transition:width 0.08s ease-out, background 0.25s ease, box-shadow 0.25s ease; box-shadow:0 0 10px rgba(255,61,94,0.4);"></div>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px;">
+                <span id="bench-confidence-status" style="color:rgba(255,255,255,0.7);">${t('telemetry.bench.status.prompt')}</span>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <span data-i18n="telemetry.bench.live_detect" style="color:rgba(255,255,255,0.5);">${t('telemetry.bench.live_detect')}</span>
+                  <strong id="bench-detected-gesture" style="color:var(--accent); font-size:12px;">--</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- Camera Canvas Preview for CV stages -->
+            <div id="bench-cam-wrap" style="display:none; width:240px; height:180px; margin:6px auto 0; border-radius:12px; overflow:hidden; border:1px solid rgba(0,255,136,0.45); background:#080d1a; position:relative; box-shadow:0 0 16px rgba(0,255,136,0.18);">
+              <canvas id="bench-webcam-canvas" width="320" height="240" style="width:100%; height:100%; object-fit:cover; display:block;"></canvas>
+              <div style="position:absolute; top:5px; right:6px; font-size:9px; background:rgba(0,0,0,0.7); color:#00ff88; padding:2px 6px; border-radius:4px; border:1px solid rgba(0,255,136,0.35); font-weight:700; letter-spacing:0.5px;" data-i18n="telemetry.bench.live_cam">${t('telemetry.bench.live_cam')}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: Survey -->
+        <div id="telem-panel-survey" class="hidden" style="display:flex; flex-direction:column; gap:12px;">
+          <div style="font-size:12px; color:rgba(255,255,255,0.7); line-height:1.5;" data-i18n="telemetry.survey.desc">
+            ${t('telemetry.survey.desc')}
+          </div>
+
+          <!-- Questions Form -->
+          <form id="telemetry-survey-form" style="display:flex; flex-direction:column; gap:10px;">
+            <!-- Q1 -->
+            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px;">
+              <div style="font-size:11px; margin-bottom:6px;" data-i18n="telemetry.survey.q_fatigue">${t('telemetry.survey.q_fatigue')}</div>
+              <div style="display:flex; justify-content:space-between; font-size:11px;">
+                <label><input type="radio" name="survey-fatigue" value="1"> 1 (Ні)</label>
+                <label><input type="radio" name="survey-fatigue" value="2"> 2</label>
+                <label><input type="radio" name="survey-fatigue" value="3" checked> 3</label>
+                <label><input type="radio" name="survey-fatigue" value="4"> 4</label>
+                <label><input type="radio" name="survey-fatigue" value="5"> 5 (Так)</label>
+              </div>
+            </div>
+
+            <!-- Q2 -->
+            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px;">
+              <div style="font-size:11px; margin-bottom:6px;" data-i18n="telemetry.survey.q_resp">${t('telemetry.survey.q_resp')}</div>
+              <div style="display:flex; justify-content:space-between; font-size:11px;">
+                <label><input type="radio" name="survey-resp" value="1"> 1</label>
+                <label><input type="radio" name="survey-resp" value="2"> 2</label>
+                <label><input type="radio" name="survey-resp" value="3"> 3</label>
+                <label><input type="radio" name="survey-resp" value="4" checked> 4</label>
+                <label><input type="radio" name="survey-resp" value="5"> 5</label>
+              </div>
+            </div>
+
+            <!-- Q3 -->
+            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px;">
+              <div style="font-size:11px; margin-bottom:6px;" data-i18n="telemetry.survey.q_trans">${t('telemetry.survey.q_trans')}</div>
+              <div style="display:flex; justify-content:space-between; font-size:11px;">
+                <label><input type="radio" name="survey-trans" value="1"> 1</label>
+                <label><input type="radio" name="survey-trans" value="2"> 2</label>
+                <label><input type="radio" name="survey-trans" value="3"> 3</label>
+                <label><input type="radio" name="survey-trans" value="4" checked> 4</label>
+                <label><input type="radio" name="survey-trans" value="5"> 5</label>
+              </div>
+            </div>
+
+            <!-- Q4 -->
+            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px;">
+              <div style="font-size:11px; margin-bottom:6px;" data-i18n="telemetry.survey.q_sat">${t('telemetry.survey.q_sat')}</div>
+              <div style="display:flex; justify-content:space-between; font-size:11px;">
+                <label><input type="radio" name="survey-sat" value="1"> 1</label>
+                <label><input type="radio" name="survey-sat" value="2"> 2</label>
+                <label><input type="radio" name="survey-sat" value="3"> 3</label>
+                <label><input type="radio" name="survey-sat" value="4"> 4</label>
+                <label><input type="radio" name="survey-sat" value="5" checked> 5</label>
+              </div>
+            </div>
+
+            <!-- Comment -->
+            <textarea id="survey-user-comment" placeholder="${t('telemetry.survey.comment')}" style="width:100%; height:46px; background:#182030; color:#fff; border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:6px 10px; font-size:11px; resize:none;"></textarea>
+
+            <!-- Submit Button & Stats -->
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+              <div style="font-size:11px; color:rgba(255,255,255,0.7);">
+                <span data-i18n="telemetry.survey.sus_proxy">${t('telemetry.survey.sus_proxy')}</span> <strong id="survey-sus-val" style="color:#00ff88;">--</strong>
+              </div>
+              <button type="button" id="btn-survey-save" class="btn btn-primary" style="padding:8px 20px; font-size:12px;" data-i18n="telemetry.survey.submit">
+                ${t('telemetry.survey.submit')}
+              </button>
+            </div>
+          </form>
+
+          <!-- Survey Export -->
+          <div style="display:flex; justify-content:flex-end; border-top:1px solid rgba(255,255,255,0.08); padding-top:8px;">
+            <button id="btn-survey-export-csv" class="btn btn-ghost" style="padding:6px 12px; font-size:11px; border-color:rgba(0,255,136,0.3); color:#00ff88;">📥 CSV</button>
+          </div>
         </div>
 
       </div>

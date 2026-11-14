@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { getHUDHtml } from '../src/ui/templates.js';
-import { translations } from '../src/i18n/translations.js';
+import { getHUDHtml } from '../src/ui/HudTemplates.js';
+import { translations } from '../src/i18n/Translations.js';
 
 describe('UI Templates (getHUDHtml)', () => {
   const dummyT = (key) => translations[key]?.en || key;
@@ -91,13 +91,13 @@ describe('HUD Class Logic', () => {
   }
 
   it('updates distance, coins, speed bar, and lives in updateHUD', async () => {
-    const { HUD } = await import('../src/ui/HUD.js');
+    const { Hud } = await import('../src/ui/Hud.js');
     const { mockDoc, getEl } = setupMockDocument();
     const origDoc = globalThis.document;
     globalThis.document = mockDoc;
 
     try {
-      const hud = new HUD({ innerHTML: '' }, null, null, null);
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
 
       hud.updateHUD(125.7, 0.5, 10, 2, false, false);
 
@@ -112,13 +112,13 @@ describe('HUD Class Logic', () => {
   });
 
   it('toggles god mode visibility in updateHUD', async () => {
-    const { HUD } = await import('../src/ui/HUD.js');
+    const { Hud } = await import('../src/ui/Hud.js');
     const { mockDoc, getEl } = setupMockDocument();
     const origDoc = globalThis.document;
     globalThis.document = mockDoc;
 
     try {
-      const hud = new HUD({ innerHTML: '' }, null, null, null);
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
 
       hud.updateHUD(50, 0.2, 5, 3, true, false);
       expect(getEl('god-badge').classList.contains('hidden')).toBe(false);
@@ -133,13 +133,13 @@ describe('HUD Class Logic', () => {
   });
 
   it('color codes FPS correctly in updateFPS', async () => {
-    const { HUD } = await import('../src/ui/HUD.js');
+    const { Hud } = await import('../src/ui/Hud.js');
     const { mockDoc, getEl } = setupMockDocument();
     const origDoc = globalThis.document;
     globalThis.document = mockDoc;
 
     try {
-      const hud = new HUD({ innerHTML: '' }, null, null, null);
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
 
       hud.updateFPS(60);
       expect(getEl('hud-fps').textContent).toBe(60);
@@ -158,13 +158,13 @@ describe('HUD Class Logic', () => {
   });
 
   it('manages modal open/close states and closeAllModals correctly', async () => {
-    const { HUD } = await import('../src/ui/HUD.js');
+    const { Hud } = await import('../src/ui/Hud.js');
     const { mockDoc, getEl } = setupMockDocument();
     const origDoc = globalThis.document;
     globalThis.document = mockDoc;
 
     try {
-      const hud = new HUD({ innerHTML: '' }, null, null, null);
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
 
       expect(hud.isAnyModalOpen()).toBe(false);
 
@@ -188,13 +188,13 @@ describe('HUD Class Logic', () => {
   });
 
   it('updates sound mute icon in updateSoundState', async () => {
-    const { HUD } = await import('../src/ui/HUD.js');
+    const { Hud } = await import('../src/ui/Hud.js');
     const { mockDoc, getEl } = setupMockDocument();
     const origDoc = globalThis.document;
     globalThis.document = mockDoc;
 
     try {
-      const hud = new HUD({ innerHTML: '' }, null, null, null);
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
 
       hud.updateSoundState(true);
       expect(getEl('hud-sound-icon').textContent).toBe('🔇');

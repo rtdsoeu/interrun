@@ -2,17 +2,43 @@
  * HUD — User interface with i18n support (en / uk).
  * - Distance, coins, lives, speed, FPS display
  * - Current control stage badge and hints
- * - Stage Announce banner
- * - Game Over screen
+ * - Stage Announce banner & transition countdown
+ * - Game Over screen & main menu transitions
  * - Scene themes and character skins modal
- * - Debug launch panel
+ * - Debug launcher and settings modal controllers
+ * - Telemetry & HCI evaluation modal controller
  * - Language switcher (EN / UA)
  */
-import { i18n } from '../i18n/i18n.js';
-import { getHUDHtml } from './templates.js';
-import { STAGE_CYCLE_LENGTH } from '../game/ScoreSystem.js';
+import { i18n } from '../i18n/I18n.js';
+import { getHUDHtml } from './HudTemplates.js';
+import { BenchmarkUI } from '../analytics/BenchmarkUI.js';
+import { TelemetryUI } from '../analytics/TelemetryUI.js';
+import { TransitionBanner } from './components/TransitionBanner.js';
+import { DebugModal } from './modals/DebugModal.js';
+import { SettingsModal } from './modals/SettingsModal.js';
+import { TelemetryModal } from './modals/TelemetryModal.js';
 
-export class HUD {
+/**
+ * Fast and responsive tap/click binder (eliminates 300ms touch delay and dropped clicks).
+ */
+export function bindFastTap(idOrEl, handler) {
+  const el = typeof idOrEl === 'string' ? document.getElementById(idOrEl) : idOrEl;
+  if (!el) return;
+  let lastTrigger = 0;
+  const trigger = (e) => {
+    const now = Date.now();
+    if (now - lastTrigger < 300) return;
+    lastTrigger = now;
+    handler(e);
+  };
+  el.addEventListener('click', trigger);
+  el.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    trigger(e);
+  }, { passive: false });
+}
+
+export class Hud {
   constructor(rootElement, skinManager, soundFx, visionManager = null) {
     this.root = rootElement;
     this.skinManager = skinManager;
@@ -37,8 +63,6 @@ export class HUD {
 
     this._isGodMode = false;
     this._isStageLocked = false;
-    this._selectedDebugStage = 0;
-    this._selectedDebugSpeed = 1.0;
 
     // Cache settings
     this._settings = {
@@ -51,8 +75,84 @@ export class HUD {
       renderScale: (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_render_scale') || '1.0') : 1.0)
     };
 
+    // Sub-components
+    this.transitionBanner = new TransitionBanner();
+    this.debugModal = new DebugModal({
+      onStartDebug: (...args) => this.onStartDebug?.(...args),
+      onApplyLiveDebug: (...args) => this.onApplyLiveDebug?.(...args),
+      soundFx: this.soundFx
+    });
+    this.settingsModal = new SettingsModal({
+      onApplySettings: (s) => this.onApplySettings?.(s),
+      onUpdateAudioSettings: (a) => this.onUpdateAudioSettings?.(a),
+      onApplyDisplaySettings: (d) => this.onApplyDisplaySettings?.(d)
+    });
+    this.telemetryUI = new TelemetryUI();
+    this.benchmarkUI = new BenchmarkUI({
+      benchmark: null,
+      visionManager: this.visionManager,
+      onShowPip: (show) => this.showWebcamPip(show)
+    });
+    this.telemetryModal = new TelemetryModal({
+      telemetryManager: null,
+      gestureBenchmark: null,
+      surveyManager: null,
+      telemetryUI: this.telemetryUI,
+      benchmarkUI: this.benchmarkUI
+    });
+
     this._render();
     this._bindElements();
+  }
+
+  // Debug stage and speed accessors
+  get _selectedDebugStage() {
+    return this.debugModal.selectedStage;
+  }
+
+  set _selectedDebugStage(val) {
+    this.debugModal.selectedStage = val;
+  }
+
+  get _selectedDebugSpeed() {
+    return this.debugModal.selectedSpeed;
+  }
+
+  set _selectedDebugSpeed(val) {
+    this.debugModal.selectedSpeed = val;
+  }
+
+  get _currentTelemTab() {
+    return this.telemetryModal.currentTab;
+  }
+
+  set _currentTelemTab(val) {
+    this.telemetryModal.currentTab = val;
+  }
+
+  get telemetryManager() {
+    return this.telemetryModal.telemetryManager;
+  }
+
+  set telemetryManager(val) {
+    this.telemetryModal.telemetryManager = val;
+  }
+
+  get gestureBenchmark() {
+    return this.telemetryModal.gestureBenchmark;
+  }
+
+  set gestureBenchmark(val) {
+    this.telemetryModal.gestureBenchmark = val;
+    this.benchmarkUI?.setBenchmark(val);
+  }
+
+  get surveyManager() {
+    return this.telemetryModal.surveyManager;
+  }
+
+  set surveyManager(val) {
+    this.telemetryModal.surveyManager = val;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -81,12 +181,12 @@ export class HUD {
     const isMenuVisible = this.elMenu && !this.elMenu.classList.contains('hidden');
     const isHudVisible = this.elHud && !this.elHud.classList.contains('hidden');
     const isDeathVisible = this.elDeath && this.elDeath.classList.contains('show');
-    const debugOpen    = !this.elDebugModal?.classList.contains('hidden');
-    const skinOpen     = !this.elSkinModal?.classList.contains('hidden');
+    const debugOpen = !this.elDebugModal?.classList.contains('hidden');
+    const skinOpen = !this.elSkinModal?.classList.contains('hidden');
     const settingsOpen = !this.elSettingsModal?.classList.contains('hidden');
     const camErrorOpen = !this.elCamErrorModal?.classList.contains('hidden');
-    const pipVisible   = !this.elWebcamPip?.classList.contains('hidden');
-    const cvVisible    = this.elCvPanel && this.elCvPanel.style.display !== 'none';
+    const pipVisible = !this.elWebcamPip?.classList.contains('hidden');
+    const cvVisible = this.elCvPanel && this.elCvPanel.style.display !== 'none';
     const lowLightOpen = !this.elLowLightBadge?.classList.contains('hidden');
     const selectedStage = this._selectedDebugStage;
     const selectedSpeed = this._selectedDebugSpeed;
@@ -98,11 +198,11 @@ export class HUD {
     this._selectedDebugSpeed = selectedSpeed;
     this._updateDebugStageButtons();
     this._updateDebugSpeedButtons();
-    if (debugOpen)    this.elDebugModal?.classList.remove('hidden');
-    if (skinOpen)     this.elSkinModal?.classList.remove('hidden');
+    if (debugOpen) this.elDebugModal?.classList.remove('hidden');
+    if (skinOpen) this.elSkinModal?.classList.remove('hidden');
     if (settingsOpen) this.elSettingsModal?.classList.remove('hidden');
     if (camErrorOpen) this.elCamErrorModal?.classList.remove('hidden');
-    if (pipVisible)   this.elWebcamPip?.classList.remove('hidden');
+    if (pipVisible) this.elWebcamPip?.classList.remove('hidden');
     if (cvVisible && this.elCvPanel) this.elCvPanel.style.display = 'inline-flex';
     if (lowLightOpen) this.elLowLightBadge?.classList.remove('hidden');
 
@@ -126,64 +226,71 @@ export class HUD {
   // ─────────────────────────────────────────────────────────────────────────
 
   _bindElements() {
-    this.elHud          = document.getElementById('hud');
-    this.elDist         = document.getElementById('hud-dist');
-    this.elCoins        = document.getElementById('hud-coins');
-    this.elStageBadge   = document.getElementById('stage-badge');
-    this.elFps          = document.getElementById('hud-fps');
-    this.elCvFps        = document.getElementById('hud-cv-fps');
-    this.elCvMs         = document.getElementById('hud-cv-ms');
-    this.elCamFps       = document.getElementById('hud-cam-fps');
-    this.elCvPanel      = document.getElementById('hud-cv-panel');
+    this.elHud = document.getElementById('hud');
+    this.elDist = document.getElementById('hud-dist');
+    this.elCoins = document.getElementById('hud-coins');
+    this.elStageBadge = document.getElementById('stage-badge');
+    this.elFps = document.getElementById('hud-fps');
+    this.elCvFps = document.getElementById('hud-cv-fps');
+    this.elCvMs = document.getElementById('hud-cv-ms');
+    this.elCamFps = document.getElementById('hud-cam-fps');
+    this.elCvPanel = document.getElementById('hud-cv-panel');
     this.elLowLightBadge = document.getElementById('hud-cam-lowlight-badge');
-    this.elControlHint  = document.getElementById('control-hint');
-    this.elSpeedBar     = document.getElementById('speed-bar-fill');
-    this.elLivesRow     = document.getElementById('lives-row');
-    this.elGodBadge     = document.getElementById('god-badge');
+    this.elControlHint = document.getElementById('control-hint');
+    this.elSpeedBar = document.getElementById('speed-bar-fill');
+    this.elLivesRow = document.getElementById('lives-row');
+    this.elGodBadge = document.getElementById('god-badge');
 
-    this.elMenu         = document.getElementById('menu');
-    this.elDeath        = document.getElementById('death-screen');
-    this.elDeathDist    = document.getElementById('death-dist');
-    this.elDeathBest    = document.getElementById('death-best');
-    this.elDeathCoins   = document.getElementById('death-coins');
+    this.elMenu = document.getElementById('menu');
+    this.elDeath = document.getElementById('death-screen');
+    this.elDeathDist = document.getElementById('death-dist');
+    this.elDeathBest = document.getElementById('death-best');
+    this.elDeathCoins = document.getElementById('death-coins');
 
     this.elStageTransition = document.getElementById('stage-transition');
-    this.elStageTitle      = document.getElementById('stage-title');
-    this.elStageDesc       = document.getElementById('stage-desc');
+    this.elStageTitle = document.getElementById('stage-title');
+    this.elStageDesc = document.getElementById('stage-desc');
 
-    this.elSkinModal    = document.getElementById('skin-modal');
-    this.elDebugModal   = document.getElementById('debug-modal');
+    this.elSkinModal = document.getElementById('skin-modal');
+    this.elDebugModal = document.getElementById('debug-modal');
     this.elSettingsModal = document.getElementById('settings-modal');
     this.elCamErrorModal = document.getElementById('camera-error-modal');
-    this.elCamErrorBody  = document.getElementById('cam-error-body');
+    this.elCamErrorBody = document.getElementById('cam-error-body');
+    this.elTelemetryModal = document.getElementById('telemetry-modal');
+
+    this.benchmarkUI.setVisionManager(this.visionManager);
+    if (this.gestureBenchmark) {
+      this.benchmarkUI.setBenchmark(this.gestureBenchmark);
+    }
+
     this.elCountdownBanner = document.getElementById('stage-countdown-banner');
-    this.elWebcamPip    = document.getElementById('webcam-pip');
+    this.elWebcamPip = document.getElementById('webcam-pip');
     this.elWebcamCanvas = document.getElementById('webcam-canvas');
     if (this.visionManager && this.elWebcamCanvas) {
       this.visionManager.setPreviewCanvas(this.elWebcamCanvas);
     }
-    this.elWebcamStatus   = document.getElementById('webcam-status');
+    this.elWebcamStatus = document.getElementById('webcam-status');
 
-    // Pre-cache life DOM elements to avoid per-frame document.getElementById lookups
+    // Pre-cache life DOM elements
     this._lifeEls = [
       document.getElementById('life-1'),
       document.getElementById('life-2'),
       document.getElementById('life-3')
     ];
-    this._lastDistInt   = -1;
-    this._lastCoins     = -1;
-    this._lastSpeedPct  = -1;
-    this._lastLives     = -1;
-    this._lastGodMode   = null;
-    this._lastFps       = -1;
-    this._lastCvFps     = -1;
-    this._lastCvMs      = -1;
-    this._lastCamFps    = -1;
+    this._lastDistInt = -1;
+    this._lastCoins = -1;
+    this._lastSpeedPct = -1;
+    this._lastLives = -1;
+    this._lastGodMode = null;
+    this._lastFps = -1;
+    this._lastCvFps = -1;
+    this._lastCvMs = -1;
+    this._lastCamFps = -1;
 
     this.elOptLock = document.getElementById('debug-opt-lock');
-    this.elOptGod  = document.getElementById('debug-opt-god');
+    this.elOptGod = document.getElementById('debug-opt-god');
 
-    // Language switcher (click and touch support)
+    // Language switcher
     document.querySelectorAll('.lang-btn').forEach(btn => {
       let touched = false;
       const handleSelectLang = (e) => {
@@ -199,28 +306,9 @@ export class HUD {
           i18n.setLang(lang);
         }
       };
-
       btn.addEventListener('touchend', handleSelectLang, { passive: false });
       btn.addEventListener('click', handleSelectLang);
     });
-
-    // Fast and responsive tap/click binder (eliminates 300ms touch delay and dropped clicks)
-    const bindFastTap = (idOrEl, handler) => {
-      const el = typeof idOrEl === 'string' ? document.getElementById(idOrEl) : idOrEl;
-      if (!el) return;
-      let lastTrigger = 0;
-      const trigger = (e) => {
-        const now = Date.now();
-        if (now - lastTrigger < 300) return;
-        lastTrigger = now;
-        handler(e);
-      };
-      el.addEventListener('click', trigger);
-      el.addEventListener('touchend', (e) => {
-        e.preventDefault();
-        trigger(e);
-      }, { passive: false });
-    };
 
     // Backdrop click dismiss for modals
     [this.elDebugModal, this.elSkinModal, this.elSettingsModal, this.elCamErrorModal].forEach(modal => {
@@ -237,7 +325,7 @@ export class HUD {
       if (this.onRetryCamera) this.onRetryCamera();
     });
 
-    // Webcam PIP: fix double-toggle (only trigger onToggleCamera once)
+    // Webcam PIP toggle
     bindFastTap('btn-toggle-cam', () => {
       if (this.onToggleCamera) this.onToggleCamera();
     });
@@ -248,7 +336,7 @@ export class HUD {
       if (this.onStartGame) this.onStartGame(0, false, false);
     });
 
-    // Menu stage chips: click to directly launch stage
+    // Menu stage chips
     document.querySelectorAll('.menu-stages .stage-chip').forEach(chip => {
       bindFastTap(chip, () => {
         const stage = parseInt(chip.getAttribute('data-stage') || '0', 10);
@@ -269,52 +357,17 @@ export class HUD {
     bindFastTap('btn-close-modal', () => this.elSkinModal?.classList.add('hidden'));
     bindFastTap('btn-modal-apply', () => this.elSkinModal?.classList.add('hidden'));
 
-    // Debug modal
-    bindFastTap('btn-debug-hud', () => this.openDebugModal());
-    bindFastTap('btn-debug-menu', () => this.openDebugModal());
-    bindFastTap('btn-debug-restart', () => this.openDebugModal());
-    bindFastTap('btn-close-debug', () => this.closeDebugModal());
+    // Delegate DebugModal UI
+    this.debugModal.bindUI(bindFastTap);
 
-    // Debug stage selector
-    document.querySelectorAll('.debug-stage-btn').forEach(btn => {
-      bindFastTap(btn, () => {
-        this._selectedDebugStage = parseInt(btn.getAttribute('data-stage') || '0', 10);
-        this._updateDebugStageButtons();
-      });
-      btn.addEventListener('dblclick', () => {
-        this._selectedDebugStage = parseInt(btn.getAttribute('data-stage') || '0', 10);
-        this._updateDebugStageButtons();
-        const isLocked = !!this.elOptLock?.checked;
-        const isGod    = !!this.elOptGod?.checked;
-        this.closeDebugModal();
-        if (this.onStartDebug) this.onStartDebug(this._selectedDebugStage, isLocked, isGod, this._selectedDebugSpeed);
-      });
-    });
+    // Delegate SettingsModal UI
+    this.settingsModal.bindUI(this._settings, this.soundFx, this.visionManager, bindFastTap);
 
-    // Debug speed selector
-    document.querySelectorAll('.debug-speed-btn').forEach(btn => {
-      bindFastTap(btn, () => {
-        this._selectedDebugSpeed = parseFloat(btn.getAttribute('data-speed') || '1.0');
-        this._updateDebugSpeedButtons();
-      });
-    });
+    // Delegate TelemetryModal UI
+    this.telemetryModal.bindUI(bindFastTap);
 
-    // Launch level from debug
-    bindFastTap('btn-debug-launch-exec', () => {
-      this.soundFx?.init();
-      const isLocked = !!this.elOptLock?.checked;
-      const isGod    = !!this.elOptGod?.checked;
-      this.closeDebugModal();
-      if (this.onStartDebug) this.onStartDebug(this._selectedDebugStage, isLocked, isGod, this._selectedDebugSpeed);
-    });
-
-    // Apply debug options live
-    bindFastTap('btn-debug-live-apply', () => {
-      const isLocked = !!this.elOptLock?.checked;
-      const isGod    = !!this.elOptGod?.checked;
-      this.closeDebugModal();
-      if (this.onApplyLiveDebug) this.onApplyLiveDebug(this._selectedDebugStage, isLocked, isGod, this._selectedDebugSpeed);
-    });
+    // Initialize & bind benchmark UI
+    this.benchmarkUI.bindUI();
 
     // Return to main menu from HUD
     bindFastTap('btn-hud-menu', () => {
@@ -324,107 +377,6 @@ export class HUD {
     // Toggle sound & music
     bindFastTap('btn-toggle-sound', () => {
       if (this.onToggleSound) this.onToggleSound();
-    });
-
-    // Settings modal openers & actions
-    bindFastTap('btn-hud-settings', () => this.openSettingsModal());
-    bindFastTap('btn-open-settings', () => this.openSettingsModal());
-    bindFastTap('btn-close-settings', () => this.closeSettingsModal());
-    bindFastTap('btn-settings-save', () => {
-      this.closeSettingsModal();
-      if (this.visionManager) {
-        this.visionManager.applySettings(this._settings);
-      }
-      if (this.onApplySettings) {
-        this.onApplySettings(this._settings);
-      }
-      if (this.onUpdateAudioSettings) {
-        this.onUpdateAudioSettings({
-          sfxVolume: this._settings.sfxVolume,
-          bgmVolume: this._settings.bgmVolume
-        });
-      }
-      if (this.onApplyDisplaySettings) {
-        this.onApplyDisplaySettings({
-          viewportFrame: this._settings.viewportFrame,
-          renderScale: this._settings.renderScale
-        });
-      }
-    });
-
-    // Audio Sliders
-    const sliderBgm = document.getElementById('slider-bgm-vol');
-    const valBgm = document.getElementById('settings-bgm-val');
-    if (sliderBgm) {
-      sliderBgm.addEventListener('input', (e) => {
-        const val = parseFloat(e.target.value);
-        this._settings.bgmVolume = val;
-        if (valBgm) valBgm.textContent = `${Math.round(val * 100)}%`;
-        if (this.onUpdateAudioSettings) {
-          this.onUpdateAudioSettings({ bgmVolume: val });
-        }
-      });
-    }
-
-    const sliderSfx = document.getElementById('slider-sfx-vol');
-    const valSfx = document.getElementById('settings-sfx-val');
-    if (sliderSfx) {
-      sliderSfx.addEventListener('input', (e) => {
-        const val = parseFloat(e.target.value);
-        this._settings.sfxVolume = val;
-        if (valSfx) valSfx.textContent = `${Math.round(val * 100)}%`;
-        if (this.onUpdateAudioSettings) {
-          this.onUpdateAudioSettings({ sfxVolume: val });
-        }
-      });
-    }
-
-    // Track Playlist Switcher
-    bindFastTap('btn-track-prev', () => {
-      this.soundFx?.prevTrack();
-    });
-    bindFastTap('btn-track-next', () => {
-      this.soundFx?.nextTrack();
-    });
-
-    if (this.soundFx?.music) {
-      this.soundFx.music.onTrackChange = (title) => {
-        const elTrack = document.getElementById('settings-current-track-name');
-        if (elTrack) elTrack.textContent = title;
-      };
-    }
-
-    // Settings options buttons
-    document.querySelectorAll('.setting-opt-btn').forEach(btn => {
-      bindFastTap(btn, () => {
-        const group = btn.getAttribute('data-group');
-        const val = btn.getAttribute('data-val');
-        if (group && val) {
-          if (group === 'targetFps') {
-            this._settings[group] = parseInt(val, 10);
-          } else if (group === 'sfxVolume' || group === 'bgmVolume') {
-            const num = parseFloat(val);
-            this._settings[group] = num;
-            if (this.onUpdateAudioSettings) {
-              this.onUpdateAudioSettings({ [group]: num });
-            }
-          } else if (group === 'renderScale') {
-            const num = parseFloat(val);
-            this._settings[group] = num;
-            if (this.onApplyDisplaySettings) {
-              this.onApplyDisplaySettings({ renderScale: num });
-            }
-          } else if (group === 'viewportFrame') {
-            this._settings[group] = val;
-            if (this.onApplyDisplaySettings) {
-              this.onApplyDisplaySettings({ viewportFrame: val });
-            }
-          } else {
-            this._settings[group] = val;
-          }
-          this._updateSettingsButtons();
-        }
-      });
     });
 
     // Themes
@@ -450,81 +402,31 @@ export class HUD {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // STATE UPDATES
+  // STATE UPDATES & MODAL DELEGATION
   // ─────────────────────────────────────────────────────────────────────────
 
   _updateDebugStageButtons() {
-    document.querySelectorAll('.debug-stage-btn').forEach(btn => {
-      const stage = parseInt(btn.getAttribute('data-stage') || '0', 10);
-      btn.classList.toggle('selected', stage === this._selectedDebugStage);
-    });
+    this.debugModal.updateStageButtons();
   }
 
   _updateDebugSpeedButtons() {
-    document.querySelectorAll('.debug-speed-btn').forEach(btn => {
-      const speed = parseFloat(btn.getAttribute('data-speed') || '1.0');
-      const isSelected = Math.abs(speed - this._selectedDebugSpeed) < 0.05;
-      btn.classList.toggle('selected', isSelected);
-      btn.style.borderColor = isSelected ? '#00e5ff' : 'rgba(255,255,255,0.12)';
-      btn.style.background  = isSelected ? 'rgba(0,229,255,0.18)' : 'rgba(255,255,255,0.04)';
-      btn.style.color       = isSelected ? '#00e5ff' : 'rgba(255,255,255,0.8)';
-    });
+    this.debugModal.updateSpeedButtons();
   }
 
   openSettingsModal() {
-    if (this.visionManager) {
-      Object.assign(this._settings, this.visionManager.settings);
-    }
-    if (this.soundFx) {
-      this._settings.sfxVolume = this.soundFx.sfxVolume;
-      this._settings.bgmVolume = this.soundFx.bgmVolume;
-    }
-    this.elSettingsModal?.classList.remove('hidden');
-
-    const sliderBgm = document.getElementById('slider-bgm-vol');
-    const valBgm = document.getElementById('settings-bgm-val');
-    if (sliderBgm) sliderBgm.value = this._settings.bgmVolume;
-    if (valBgm) valBgm.textContent = `${Math.round(this._settings.bgmVolume * 100)}%`;
-
-    const sliderSfx = document.getElementById('slider-sfx-vol');
-    const valSfx = document.getElementById('settings-sfx-val');
-    if (sliderSfx) sliderSfx.value = this._settings.sfxVolume;
-    if (valSfx) valSfx.textContent = `${Math.round(this._settings.sfxVolume * 100)}%`;
-
-    const elTrack = document.getElementById('settings-current-track-name');
-    if (elTrack && this.soundFx) {
-      elTrack.textContent = this.soundFx.currentTrackTitle;
-    }
-
-    this._updateSettingsButtons();
+    this.settingsModal.open(this._settings, this.soundFx, this.visionManager);
   }
 
   closeSettingsModal() {
-    this.elSettingsModal?.classList.add('hidden');
+    this.settingsModal.close();
   }
 
   toggleSettingsModal() {
-    if (this.elSettingsModal?.classList.contains('hidden')) this.openSettingsModal();
-    else this.closeSettingsModal();
+    this.settingsModal.toggle(this._settings, this.soundFx, this.visionManager);
   }
 
   _updateSettingsButtons() {
-    document.querySelectorAll('.setting-opt-btn').forEach(btn => {
-      const group = btn.getAttribute('data-group');
-      const val = btn.getAttribute('data-val');
-      let isSelected = false;
-      if (group === 'sfxVolume' || group === 'bgmVolume' || group === 'renderScale') {
-        const numVal = parseFloat(val);
-        const curVal = this._settings[group];
-        isSelected = Math.abs(numVal - curVal) < 0.05;
-      } else {
-        isSelected = (val === String(this._settings[group]));
-      }
-      btn.classList.toggle('selected', isSelected);
-      btn.style.borderColor = isSelected ? 'var(--accent)' : 'rgba(255,255,255,0.12)';
-      btn.style.background  = isSelected ? 'rgba(0,229,255,0.18)' : 'rgba(255,255,255,0.04)';
-      btn.style.color       = isSelected ? '#00e5ff' : 'rgba(255,255,255,0.8)';
-    });
+    this.settingsModal.updateButtons(this._settings);
   }
 
   syncVisionSettings(settings) {
@@ -565,9 +467,10 @@ export class HUD {
 
   isAnyModalOpen() {
     return (!this.elDebugModal?.classList.contains('hidden')) ||
-           (!this.elSkinModal?.classList.contains('hidden')) ||
-           (!this.elSettingsModal?.classList.contains('hidden')) ||
-           (!this.elCamErrorModal?.classList.contains('hidden'));
+      (!this.elSkinModal?.classList.contains('hidden')) ||
+      (!this.elSettingsModal?.classList.contains('hidden')) ||
+      (!this.elTelemetryModal?.classList.contains('hidden')) ||
+      (!this.elCamErrorModal?.classList.contains('hidden'));
   }
 
   closeAllModals() {
@@ -575,42 +478,145 @@ export class HUD {
     this.elSkinModal?.classList.add('hidden');
     this.closeSettingsModal();
     this.closeCameraErrorModal();
+    this.closeTelemetryModal();
   }
 
   openDebugModal() {
-    this.elDebugModal?.classList.remove('hidden');
-    this._updateDebugStageButtons();
-    this._updateDebugSpeedButtons();
+    this.debugModal.open();
   }
 
   closeDebugModal() {
-    this.elDebugModal?.classList.add('hidden');
+    this.debugModal.close();
   }
 
   toggleDebugModal() {
-    if (this.elDebugModal?.classList.contains('hidden')) this.openDebugModal();
-    else this.closeDebugModal();
+    this.debugModal.toggle();
+  }
+
+  setAnalytics({ telemetry, benchmark, survey } = {}) {
+    if (telemetry) this.telemetryManager = telemetry;
+    if (benchmark) {
+      this.gestureBenchmark = benchmark;
+    }
+    if (survey) this.surveyManager = survey;
+  }
+
+  openTelemetryModal() {
+    this.telemetryModal.open();
+  }
+
+  closeTelemetryModal() {
+    this.telemetryModal.close();
+  }
+
+  toggleTelemetryModal() {
+    this.telemetryModal.toggle();
+  }
+
+  switchTelemetryTab(tab) {
+    this.telemetryModal.switchTab(tab);
+  }
+
+  renderTelemetryStats() {
+    this.telemetryModal.renderTelemetryStats();
+  }
+
+  exportTelemetryCsv() {
+    this.telemetryModal.exportTelemetryCsv();
+  }
+
+  exportTelemetryJson() {
+    this.telemetryModal.exportTelemetryJson();
+  }
+
+  clearTelemetryHistory() {
+    this.telemetryModal.clearTelemetryHistory();
+  }
+
+  _getBenchmarkClasses(stageKey) {
+    return this.benchmarkUI?.getBenchmarkClasses(stageKey) || [];
+  }
+
+  _getBenchmarkIcons(stageKey) {
+    return this.benchmarkUI?.getBenchmarkIcons(stageKey) || {};
+  }
+
+  _getBenchmarkHints(stageKey) {
+    return this.benchmarkUI?.getBenchmarkHints(stageKey) || '';
+  }
+
+  _onBenchmarkTargetChanged() {
+    this.benchmarkUI?.onTargetChanged();
+  }
+
+  get _benchmarkRunning() {
+    return this.benchmarkUI?.isRunning || false;
+  }
+
+  set _benchmarkRunning(val) {
+    if (!val && this.benchmarkUI) {
+      this.benchmarkUI.stopGestureBenchmark();
+    }
+  }
+
+  _stopGestureBenchmark() {
+    this.benchmarkUI?.stopGestureBenchmark();
+  }
+
+  async runGestureBenchmark() {
+    await this.benchmarkUI?.runGestureBenchmark();
+  }
+
+  _renderBenchmarkResults(classList) {
+    if (this.gestureBenchmark) {
+      const report = this.gestureBenchmark.calculateReport(classList);
+      this.benchmarkUI?._renderBenchmarkResults(report, classList);
+    }
+  }
+
+  exportBenchmarkCsv() {
+    this.benchmarkUI?.exportCsv();
+  }
+
+  exportBenchmarkJson() {
+    this.benchmarkUI?.exportJson();
+  }
+
+  renderSurveySummary() {
+    this.telemetryModal.renderSurveySummary();
+  }
+
+  saveSurveyResponse() {
+    this.telemetryModal.saveSurveyResponse();
+  }
+
+  exportSurveyCsv() {
+    this.telemetryModal.exportSurveyCsv();
+  }
+
+  _downloadFile(filename, content, mimeType) {
+    this.telemetryUI?._downloadFile(filename, content, mimeType);
   }
 
   _updateActiveButtons() {
     document.querySelectorAll('.theme-select-btn').forEach(btn => {
       const match = btn.getAttribute('data-theme') === this.skinManager.currentThemeId;
       btn.style.borderColor = match ? 'var(--accent)' : 'rgba(255,255,255,0.12)';
-      btn.style.background  = match ? 'var(--glass-b)' : 'var(--glass)';
+      btn.style.background = match ? 'var(--glass-b)' : 'var(--glass)';
     });
 
     document.querySelectorAll('.skin-select-btn').forEach(btn => {
       const match = btn.getAttribute('data-skin') === this.skinManager.currentCharSkinId;
       btn.style.borderColor = match ? 'var(--accent2)' : 'rgba(255,255,255,0.12)';
-      btn.style.background  = match ? 'rgba(255,107,53,0.15)' : 'var(--glass)';
+      btn.style.background = match ? 'rgba(255,107,53,0.15)' : 'var(--glass)';
     });
 
     // Highlight active language
     document.querySelectorAll('.lang-btn').forEach(btn => {
       const active = btn.getAttribute('data-lang') === i18n.lang;
-      btn.style.borderColor  = active ? 'var(--accent)' : 'rgba(255,255,255,0.2)';
-      btn.style.background   = active ? 'rgba(0,229,255,0.15)' : 'rgba(255,255,255,0.05)';
-      btn.style.color        = active ? 'var(--accent)' : 'rgba(255,255,255,0.7)';
+      btn.style.borderColor = active ? 'var(--accent)' : 'rgba(255,255,255,0.2)';
+      btn.style.background = active ? 'rgba(0,229,255,0.15)' : 'rgba(255,255,255,0.05)';
+      btn.style.color = active ? 'var(--accent)' : 'rgba(255,255,255,0.7)';
     });
   }
 
@@ -639,8 +645,8 @@ export class HUD {
 
   showGameOver(distance, bestScore, coins) {
     this.hideTransitionCountdown();
-    if (this.elDeathDist)  this.elDeathDist.textContent  = Math.floor(distance);
-    if (this.elDeathBest)  this.elDeathBest.textContent  = Math.floor(bestScore);
+    if (this.elDeathDist) this.elDeathDist.textContent = Math.floor(distance);
+    if (this.elDeathBest) this.elDeathBest.textContent = Math.floor(bestScore);
     if (this.elDeathCoins) this.elDeathCoins.textContent = coins;
     this.elDeath?.classList.add('show');
   }
@@ -735,7 +741,7 @@ export class HUD {
   showWebcamPip(show = true) {
     if (!this.elWebcamPip) return;
     if (show) this.elWebcamPip.classList.remove('hidden');
-    else      this.elWebcamPip.classList.add('hidden');
+    else this.elWebcamPip.classList.add('hidden');
   }
 
   updateAiPreloadProgress(progress, stage) {
@@ -777,125 +783,33 @@ export class HUD {
     }
   }
 
-  _isTouch() {
-    return (typeof window !== 'undefined') && (('ontouchstart' in window) || (navigator.maxTouchPoints > 0));
-  }
-
-  _tStage(stageNumber, field) {
-    if (this._isTouch()) {
-      const touchKey = `stage.${stageNumber}.${field}.touch`;
-      const val = this._t(touchKey);
-      if (val !== touchKey) return val;
-    }
-    return this._t(`stage.${stageNumber}.${field}`);
-  }
-
-  _tTransition(stageNumber) {
-    if (this._isTouch()) {
-      const touchKey = `transition.hint.${stageNumber}.touch`;
-      const val = this._t(touchKey);
-      if (val !== touchKey) return val;
-    }
-    return this._t(`transition.hint.${stageNumber}`);
-  }
-
   announceStage(stageNumber, isLocked = false, cycle = null) {
+    const currentDist = (this.elDist ? parseInt(this.elDist.textContent || '0', 10) : 0);
+    this.transitionBanner.announceStage(stageNumber, isLocked, cycle, currentDist, this.soundFx);
+    this._lastStageNumber = this.transitionBanner._lastStageNumber;
+    this._lastIsLocked = this.transitionBanner._lastIsLocked;
+    this._lastCycle = this.transitionBanner._lastCycle;
     this._selectedDebugStage = stageNumber;
     this._updateDebugStageButtons();
-
-    const stages = [
-      { badge: this._tStage(0, 'badge'), hint: this._tStage(0, 'hint'), title: this._tStage(0, 'title'), desc: this._tStage(0, 'desc') },
-      { badge: this._tStage(1, 'badge'), hint: this._tStage(1, 'hint'), title: this._tStage(1, 'title'), desc: this._tStage(1, 'desc') },
-      { badge: this._tStage(2, 'badge'), hint: this._tStage(2, 'hint'), title: this._tStage(2, 'title'), desc: this._tStage(2, 'desc') },
-      { badge: this._tStage(3, 'badge'), hint: this._tStage(3, 'hint'), title: this._tStage(3, 'title'), desc: this._tStage(3, 'desc') },
-      { badge: this._tStage(4, 'badge'), hint: this._tStage(4, 'hint'), title: this._tStage(4, 'title'), desc: this._tStage(4, 'desc') },
-      { badge: this._tStage(5, 'badge'), hint: this._tStage(5, 'hint'), title: this._tStage(5, 'title'), desc: this._tStage(5, 'desc') },
-    ];
-
-    const info = stages[stageNumber] ?? stages[0];
-    const lockSuffix = isLocked ? ' 🔒' : '';
-    const currentDist = (this.elDist ? parseInt(this.elDist.textContent || '0', 10) : 0);
-    const effectiveCycle = (cycle !== null && cycle !== undefined) ? cycle : Math.floor(currentDist / STAGE_CYCLE_LENGTH);
-    const loopSuffix = effectiveCycle > 0 ? ` [${this._t('stage.loop')} ${effectiveCycle + 1}]` : '';
-
-    this._lastStageNumber = stageNumber;
-    this._lastIsLocked = isLocked;
-    this._lastCycle = effectiveCycle;
-
-    if (this.elStageBadge)  this.elStageBadge.textContent  = info.badge + loopSuffix + lockSuffix;
-    if (this.elControlHint) this.elControlHint.innerHTML    = info.hint;
-
-    const shouldAnnounce = stageNumber > 0 || currentDist > 50 || effectiveCycle > 0;
-    if (shouldAnnounce) {
-      if (this.elStageTitle) this.elStageTitle.textContent = info.title + loopSuffix + lockSuffix;
-      if (this.elStageDesc)  this.elStageDesc.textContent  = info.desc;
-
-      const announce = document.getElementById('stage-announce');
-      if (this.elStageTransition && announce) {
-        this.elStageTransition.classList.add('flash');
-        announce.classList.add('show');
-        if (this.soundFx) this.soundFx.playStageUp();
-        setTimeout(() => {
-          announce.classList.remove('show');
-          this.elStageTransition.classList.remove('flash');
-        }, 2400);
-      }
-    }
   }
 
   showTransitionCountdown(stageNumber, totalDuration, remainingSec, cycle = 0) {
-    const banner = document.getElementById('stage-countdown-banner');
-    if (!banner) return;
-
-    const stageNames = [
-      this._tStage(0, 'badge'),
-      this._tStage(1, 'badge'),
-      this._tStage(2, 'badge'),
-      this._tStage(3, 'badge'),
-      this._tStage(4, 'badge'),
-      this._tStage(5, 'badge')
-    ];
-
-    const stageHints = [
-      this._tTransition(0),
-      this._tTransition(1),
-      this._tTransition(2),
-      this._tTransition(3),
-      this._tTransition(4),
-      this._tTransition(5)
-    ];
-
-    const badge = document.getElementById('transition-next-badge');
-    const hint = document.getElementById('transition-next-hint');
-
-    const loopSuffix = cycle > 0 ? ` [${this._t('stage.loop')} ${cycle + 1}]` : '';
-    if (badge) badge.textContent = (stageNames[stageNumber] || `STAGE ${stageNumber}`) + loopSuffix;
-    if (hint) hint.innerHTML = stageHints[stageNumber] || '';
-
-    banner.classList.remove('hidden');
-    this.updateTransitionCountdown(remainingSec, totalDuration);
+    this.transitionBanner.showTransitionCountdown(stageNumber, totalDuration, remainingSec, cycle);
   }
 
   updateTransitionCountdown(remainingSec, totalDuration = 3.5) {
-    const numEl = document.getElementById('transition-timer-num');
-    const circle = document.getElementById('transition-timer-circle');
-
-    const rem = Math.max(0, remainingSec);
-    if (numEl) {
-      numEl.textContent = rem > 0.05 ? rem.toFixed(1) : 'GO!';
-      numEl.style.color = rem <= 1.0 ? '#00ff88' : '#00e5ff';
-    }
-
-    if (circle && totalDuration > 0) {
-      const progress = Math.max(0, Math.min(1, rem / totalDuration));
-      const offset = 100 * (1 - progress);
-      circle.style.strokeDashoffset = `${offset}`;
-      circle.style.stroke = rem <= 1.0 ? '#00ff88' : '#00e5ff';
-    }
+    this.transitionBanner.updateTransitionCountdown(remainingSec, totalDuration);
   }
 
   hideTransitionCountdown() {
-    const banner = document.getElementById('stage-countdown-banner');
-    if (banner) banner.classList.add('hidden');
+    this.transitionBanner.hideTransitionCountdown();
+  }
+
+  _tStage(stageNumber, field) {
+    return this.transitionBanner._tStage(stageNumber, field);
+  }
+
+  _tTransition(stageNumber) {
+    return this.transitionBanner._tTransition(stageNumber);
   }
 }

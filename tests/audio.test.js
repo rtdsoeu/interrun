@@ -199,6 +199,12 @@ describe('SoundFx integration with MusicPlayer', () => {
     expect(soundFx.music.isPlaying).toBe(false);
   });
 
+  it('exposes playHazardDrop without throwing when context is unavailable or muted', () => {
+    expect(() => soundFx.playHazardDrop()).not.toThrow();
+    soundFx.setMuted(true);
+    expect(() => soundFx.playHazardDrop()).not.toThrow();
+  });
+
   it('mutes both sfx and bgm on setMuted', () => {
     soundFx.setMuted(true);
     expect(soundFx.muted).toBe(true);

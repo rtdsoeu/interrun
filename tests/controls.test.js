@@ -12,7 +12,7 @@ import { ScoreSystem } from '../src/game/ScoreSystem.js';
 import { ControlManager } from '../src/controls/ControlManager.js';
 import { HandSwipeControl } from '../src/controls/HandSwipeControl.js';
 import { FingerGestureControl } from '../src/controls/FingerGestureControl.js';
-import { ZoneControl } from '../src/controls/ZoneControl.js';
+import { FaceZoneControl } from '../src/controls/FaceZoneControl.js';
 import { HandZoneControl } from '../src/controls/HandZoneControl.js';
 import { KeyboardControl } from '../src/controls/KeyboardControl.js';
 import { PointerControl } from '../src/controls/PointerControl.js';
@@ -277,7 +277,7 @@ describe('ControlManager 6-Stage Registry', () => {
 
     cm.register(0, new KeyboardControl());
     cm.register(1, new PointerControl());
-    cm.register(2, new ZoneControl(mockVision));
+    cm.register(2, new FaceZoneControl(mockVision));
     cm.register(3, new HandZoneControl(mockVision));
     cm.register(4, new FingerGestureControl(mockVision));
     cm.register(5, new HandSwipeControl(mockVision));
@@ -289,7 +289,7 @@ describe('ControlManager 6-Stage Registry', () => {
   });
 });
 
-describe('ZoneControl & HandZoneControl (Stages 2 & 3: 3×3 Grid)', () => {
+describe('FaceZoneControl & HandZoneControl (Stages 2 & 3: 3×3 Grid)', () => {
   it('correctly maps 3x3 zones to absolute targetLane, jump, and duck', () => {
     const mockVision = {
       isReady: true,
@@ -302,7 +302,7 @@ describe('ZoneControl & HandZoneControl (Stages 2 & 3: 3×3 Grid)', () => {
       initWebcam: () => {}
     };
 
-    const zc = new ZoneControl(mockVision);
+    const zc = new FaceZoneControl(mockVision);
     zc.enable();
 
     // L -> Left lane
@@ -669,7 +669,7 @@ describe('VisionManager Low FPS Auto-Calibration', () => {
 
 describe('HUD Stage Loop Display on Cycle 2+ Transitions', () => {
   it('correctly includes loop counter for Stage 0 (Keyboard) when looping to cycle 1+', async () => {
-    const { HUD } = await import('../src/ui/HUD.js');
+    const { Hud } = await import('../src/ui/Hud.js');
     const root = { innerHTML: '' };
     const elements = {};
     const mockDoc = {
@@ -685,7 +685,7 @@ describe('HUD Stage Loop Display on Cycle 2+ Transitions', () => {
     const origDoc = globalThis.document;
     globalThis.document = mockDoc;
     try {
-      const hud = new HUD(root, null, null, null);
+      const hud = new Hud(root, null, null, null);
       // Announce stage 0 on cycle 1 (Kolo 2 / Loop 2)
       hud.announceStage(0, false, 1);
       expect(hud.elStageBadge.textContent).toMatch(/(Loop|Коло|Круг)\s*2/);
@@ -798,7 +798,7 @@ describe('Camera Error & Fallback System', () => {
   });
 
   it('correctly opens and closes camera error modal in HUD', async () => {
-    const { HUD } = await import('../src/ui/HUD.js');
+    const { Hud } = await import('../src/ui/Hud.js');
     const root = { innerHTML: '' };
     const elements = {};
     const mockDoc = {
@@ -828,7 +828,7 @@ describe('Camera Error & Fallback System', () => {
     const origDoc = globalThis.document;
     globalThis.document = mockDoc;
     try {
-      const hud = new HUD(root, null, null, null);
+      const hud = new Hud(root, null, null, null);
       expect(hud.isAnyModalOpen()).toBe(false);
 
       // Show camera error modal
@@ -881,7 +881,7 @@ describe('Camera Error & Fallback System', () => {
   });
 
   it('toggles low-light badge in HUD metrics panel when camera FPS is below 18', async () => {
-    const { HUD } = await import('../src/ui/HUD.js');
+    const { Hud } = await import('../src/ui/Hud.js');
     const elements = {};
     const mockDoc = {
       getElementById: (id) => elements[id] || (elements[id] = {
@@ -901,7 +901,7 @@ describe('Camera Error & Fallback System', () => {
     const origDoc = globalThis.document;
     globalThis.document = mockDoc;
     try {
-      const hud = new HUD({ innerHTML: '' }, null, null, null);
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
 
       // Normal lighting: 30 FPS -> badge hidden
       hud.updateCvFPS(30, 20, 30);

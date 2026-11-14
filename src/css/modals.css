@@ -1,0 +1,212 @@
+/* =============================================
+   InterRun — Modals, Dialogs & Touch Controls
+   ============================================= */
+
+/* ─── DEBUG MODAL & GOD BADGE ─── */
+.debug-stage-btn {
+  transition: all 0.2s ease;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.debug-stage-btn:hover {
+  background: rgba(0,229,255,0.12);
+  border-color: rgba(0,229,255,0.4);
+  transform: translateY(-2px);
+}
+.debug-stage-btn.selected {
+  background: rgba(0,229,255,0.2) !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 15px rgba(0,229,255,0.35);
+}
+
+.god-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,215,0,0.15);
+  border: 1px solid rgba(255,215,0,0.6);
+  border-radius: 100px;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffd700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  animation: godPulse 2s infinite ease-in-out;
+}
+
+@keyframes godPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(255,215,0,0.3); }
+  50% { box-shadow: 0 0 18px rgba(255,215,0,0.7); }
+}
+
+/* ─── Language Switcher ─── */
+#lang-switcher {
+  pointer-events: all;
+}
+.lang-btn {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.7);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 16px;
+  min-height: 44px;
+  min-width: 64px;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+  letter-spacing: 0.5px;
+  pointer-events: all;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.lang-btn:hover {
+  background: rgba(0,229,255,0.1);
+  border-color: rgba(0,229,255,0.4);
+  color: var(--accent);
+}
+.lang-btn:active {
+  background: rgba(0,229,255,0.25);
+  transform: scale(0.94);
+}
+.lang-btn.active {
+  background: rgba(0,229,255,0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ─── Zone CV PIP enlarged ─── */
+#webcam-pip {
+  transition: opacity 0.3s ease;
+}
+
+/* ─── Cyberpunk Range Slider ─── */
+.cyber-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  margin: 6px 0;
+}
+.cyber-slider:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+.cyber-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #00e5ff;
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.8), 0 0 20px rgba(0, 229, 255, 0.4);
+  cursor: pointer;
+  border: 2px solid #ffffff;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.cyber-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #00e5ff;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.8), 0 0 20px rgba(0, 229, 255, 0.4);
+  cursor: pointer;
+}
+.cyber-slider:active::-webkit-slider-thumb {
+  transform: scale(1.22);
+  box-shadow: 0 0 16px rgba(0, 229, 255, 1), 0 0 30px rgba(0, 229, 255, 0.7);
+}
+.cyber-slider-sfx::-webkit-slider-thumb {
+  background: #ff6b35;
+  box-shadow: 0 0 10px rgba(255, 107, 53, 0.8), 0 0 20px rgba(255, 107, 53, 0.4);
+}
+.cyber-slider-sfx::-moz-range-thumb {
+  background: #ff6b35;
+  box-shadow: 0 0 10px rgba(255, 107, 53, 0.8), 0 0 20px rgba(255, 107, 53, 0.4);
+}
+.cyber-slider-sfx:active::-webkit-slider-thumb {
+  box-shadow: 0 0 16px rgba(255, 107, 53, 1), 0 0 30px rgba(255, 107, 53, 0.7);
+}
+
+/* =============================================
+   Touch Virtual D-Pad (Touch Devices)
+   ============================================= */
+#touch-dpad {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 160px;
+  z-index: 50;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#dpad-left-group {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+#dpad-right-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.dpad-btn {
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  color: var(--accent);
+  font-weight: 900;
+  pointer-events: all;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 16px rgba(0, 229, 255, 0.35);
+  transition: background 0.1s, transform 0.08s;
+  -webkit-tap-highlight-color: transparent;
+  width: 64px;
+  height: 64px;
+  font-size: 24px;
+}
+
+.dpad-btn:active,
+.dpad-btn.active {
+  transform: scale(0.88);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.dpad-btn-slide {
+  width: 56px;
+  height: 56px;
+  font-size: 21px;
+  border-color: var(--accent2);
+  color: var(--accent2);
+  box-shadow: 0 0 16px rgba(255, 107, 53, 0.35);
+}
+
+.dpad-btn-jump {
+  width: 72px;
+  height: 72px;
+  font-size: 27px;
+}

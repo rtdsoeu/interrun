@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import { CameraRig } from './CameraRig.js';
 import { Runner, PlayerState } from './Runner.js';
 import { Track } from './Track.js';
-import { ObstacleManager } from './Obstacles.js';
+import { ObstacleManager } from './ObstacleManager.js';
 import { ScoreSystem } from './ScoreSystem.js';
 import { ControlManager } from '../controls/ControlManager.js';
 import { KeyboardControl } from '../controls/KeyboardControl.js';
 import { PointerControl } from '../controls/PointerControl.js';
-import { ZoneControl } from '../controls/ZoneControl.js';
+import { FaceZoneControl } from '../controls/FaceZoneControl.js';
 import { HandZoneControl } from '../controls/HandZoneControl.js';
 import { FingerGestureControl } from '../controls/FingerGestureControl.js';
 import { HandSwipeControl } from '../controls/HandSwipeControl.js';
@@ -15,8 +15,11 @@ import { TouchButtonControl } from '../controls/TouchButtonControl.js';
 import { VisionManager } from '../vision/VisionManager.js';
 import { SkinManager } from '../skins/SkinManager.js';
 import { SoundFx } from '../audio/SoundFx.js';
-import { HUD } from '../ui/HUD.js';
-import { i18n } from '../i18n/i18n.js';
+import { Hud } from '../ui/Hud.js';
+import { i18n } from '../i18n/I18n.js';
+import { TelemetryManager } from '../analytics/TelemetryManager.js';
+import { GestureBenchmark } from '../analytics/GestureBenchmark.js';
+import { SurveyManager } from '../analytics/SurveyManager.js';
 import { WakeLockManager } from './WakeLockManager.js';
 import { ViewportManager } from './ViewportManager.js';
 import { StageTransitionCoordinator } from './StageTransitionCoordinator.js';
@@ -35,7 +38,7 @@ export const GameState = {
  * Control stages:
  *   0 — KeyboardControl (WASD / Arrows) / TouchButtonControl (mobile D-pad)
  *   1 — PointerControl (Mouse + Touch swipes)
- *   2 — ZoneControl (Face Zone CV 3×3 grid)
+ *   2 — FaceZoneControl (Face Zone CV 3×3 grid)
  *   3 — HandZoneControl (Zone 3×3, hand only)
  *   4 — FingerGestureControl (finger gestures: 1/2/3 fingers, palm, fist)
  *   5 — HandSwipeControl (contactless air swipes)
@@ -73,13 +76,24 @@ export class Engine {
     this.runner = new Runner(this.scene, this.soundFx);
     this.track = new Track(this.scene, this.skinManager);
     this.obstacleManager = new ObstacleManager(this.scene, this.skinManager, this.soundFx);
+    this.obstacleManager.onHazardLanded = () => {
+      if (this.cameraRig) this.cameraRig.addTrauma(0.25);
+    };
     this.scoreSystem = new ScoreSystem();
 
     // 5. Control plugins
     this._initControls();
 
-    // 6. HUD and UI
-    this.hud = new HUD(this.uiRoot, this.skinManager, this.soundFx, this.visionManager);
+    // 6. HUD, UI and HCI Analytics
+    this.telemetry = new TelemetryManager();
+    this.gestureBenchmark = new GestureBenchmark();
+    this.surveyManager = new SurveyManager();
+    this.hud = new Hud(this.uiRoot, this.skinManager, this.soundFx, this.visionManager);
+    this.hud.setAnalytics({
+      telemetry: this.telemetry,
+      benchmark: this.gestureBenchmark,
+      survey: this.surveyManager
+    });
     this._bindHUD();
     this.visionManager.onFpsUpdate = (cvFps, frametime, camFps) => this.hud.updateCvFPS(cvFps, frametime, camFps);
     this.visionManager.onSettingsCalibrated = (settings) => this.hud.syncVisionSettings(settings);
@@ -190,8 +204,8 @@ export class Engine {
     // Stage 1: Pointer swipes (mouse & touch)
     this.controlManager.register(1, new PointerControl());
 
-    // Stage 2: Zone CV — 3×3 grid (face nose landmark)
-    this.controlManager.register(2, new ZoneControl(this.visionManager));
+    // Stage 2: Face Zone CV — 3×3 grid (face nose landmark)
+    this.controlManager.register(2, new FaceZoneControl(this.visionManager));
 
     // Stage 3: HandZone — 3×3 grid (hand palm centroid)
     this.controlManager.register(3, new HandZoneControl(this.visionManager));
@@ -233,6 +247,7 @@ export class Engine {
   }
 
   _applyStageSwitch(stage) {
+    this.telemetry?.recordStageTransition(stage, this.scoreSystem.distance);
     const isCvStage = stage >= 2;
     this.hud.showCvFps(isCvStage);
 
@@ -449,6 +464,7 @@ export class Engine {
   }
 
   startGame(stage = 0, isLocked = false, isGodMode = false, speedMultiplier = 1.0) {
+    this.telemetry?.startSession(stage, isLocked, speedMultiplier);
     this.coins = 0;
     this.lives = 3;
     this.godMode = isGodMode;
@@ -478,6 +494,7 @@ export class Engine {
     this.wakeLock?.release();
     this.transitionCoordinator.cancelTransition();
     this.scoreSystem.stop();
+    this.telemetry?.endSession(this.scoreSystem.distance, this.scoreSystem.bestScore, this.coins);
     this.controlManager.setStage(-1);
     this.soundFx?.setBgmMode('dead');
 
@@ -492,6 +509,8 @@ export class Engine {
   _onPlayerHit(obstacle) {
     if (this.invulnerableTimer > 0) return;
     if (this.hud?.elCamErrorModal && !this.hud.elCamErrorModal.classList.contains('hidden')) return;
+
+    this.telemetry?.recordCollision(this.scoreSystem.stage, this.scoreSystem.distance, obstacle?.type || '');
 
     if (this.godMode) {
       this.cameraRig.addTrauma(0.4);
@@ -525,6 +544,7 @@ export class Engine {
       this._frameCount = 0;
       this._fpsTimer = 0;
       this.hud.updateFPS(fps);
+      this.telemetry?.sampleFps(fps, this.visionManager?.cvFps || 0, this.scoreSystem.stage);
     }
 
     if (this.state === GameState.PLAYING) {
@@ -547,6 +567,28 @@ export class Engine {
       this.visionManager.update();
       this.controlManager.update(dt);
       const input = this.controlManager.consume();
+      if (input.laneDelta !== 0 || input.targetLane !== undefined || input.jump || input.slide || input.isDucking) {
+        // Find nearest oncoming obstacle in front of runner to calculate physical Time-To-Collision (TTC)
+        let nearestObsZ = null;
+        let minAhead = Infinity;
+        if (this.obstacleManager?.activeObstacles) {
+          for (let i = 0; i < this.obstacleManager.activeObstacles.length; i++) {
+            const obs = this.obstacleManager.activeObstacles[i];
+            if (!obs?.mesh) continue;
+            const distAhead = this.runner.pos.z - obs.mesh.position.z;
+            if (distAhead > 0 && distAhead < minAhead) {
+              minAhead = distAhead;
+              nearestObsZ = obs.mesh.position.z;
+            }
+          }
+        }
+        this.telemetry?.recordPlayerAction(
+          input.jump ? 'jump' : (input.slide || input.isDucking ? 'slide' : 'lane'),
+          speed,
+          this.runner.pos.z,
+          nearestObsZ
+        );
+      }
       this.runner.handleInput(input);
 
       this.runner.update(dt, speed);
@@ -565,8 +607,20 @@ export class Engine {
         dt, speed, difficulty,
         this.runner.hitbox,
         this._boundOnPlayerHit,
-        this._boundOnCoinCollected
+        this._boundOnCoinCollected,
+        this.scoreSystem.distance
       );
+
+      if (this.obstacleManager?.activeObstacles) {
+        for (let i = 0; i < this.obstacleManager.activeObstacles.length; i++) {
+          const obs = this.obstacleManager.activeObstacles[i];
+          if (!obs?.mesh) continue;
+          const relZ = obs.mesh.position.z - this.runner.pos.z;
+          if (relZ <= -18 && relZ >= -28) {
+            this.telemetry?.recordObstacleHorizon(obs.mesh.uuid || i, this.scoreSystem.distance, obs.lane, obs.type, obs.mesh.position.z);
+          }
+        }
+      }
 
       this.cameraRig.update(dt, this.runner.pos, this.runner.xVelocity, speedNorm,
         this.runner.state === PlayerState.SLIDING);
@@ -577,11 +631,13 @@ export class Engine {
       );
 
     } else if (this.state === GameState.MENU) {
+      if (this.visionManager?.isReady) this.visionManager.update();
       this.track.update(dt, 7);
       this.runner.update(dt, 7);
       this.cameraRig.update(dt, this.runner.pos, 0, 0.1, false);
 
     } else if (this.state === GameState.DEAD) {
+      if (this.visionManager?.isReady) this.visionManager.update();
       this.runner.update(dt, 0);
       this.cameraRig.update(dt, this.runner.pos, 0, 0, false);
     }

@@ -370,6 +370,56 @@ export class SoundFx {
     }
   }
 
+  /** Hazard Drop / Impact: Heavy industrial ground slam */
+  playHazardDrop() {
+    const ctx = this._ensureContext();
+    if (!ctx || this.muted) return;
+
+    try {
+      const now = ctx.currentTime;
+      // 1. Heavy low-frequency punch
+      const osc = ctx.createOscillator();
+      const oscGain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(140, now);
+      osc.frequency.exponentialRampToValueAtTime(30, now + 0.35);
+
+      oscGain.gain.setValueAtTime(0.65, now);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+      osc.connect(oscGain);
+      oscGain.connect(this._sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.35);
+
+      // 2. Short metal thud noise
+      const bufferSize = Math.floor(ctx.sampleRate * 0.15);
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(340, now);
+      filter.Q.value = 2.5;
+
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.4, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+      noise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(this._sfxGain);
+      noise.start(now);
+      noise.stop(now + 0.15);
+    } catch (e) {
+      console.warn('[SoundFx] playHazardDrop failed', e);
+    }
+  }
+
   /** Stage Up: Ascending major arpeggio fanfare */
   playStageUp() {
     const ctx = this._ensureContext();

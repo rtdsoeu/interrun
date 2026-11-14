@@ -11,18 +11,8 @@ export const CV_RESOLUTION_PRESETS = {
   high: { width: 320, height: 240 }
 };
 
-// Static constants to prevent per-draw allocations in PIP canvas
-const ZONE_ACTION_COLORS = {
-  'top-L': '#6c63ff55', 'top-C': '#00e5ff55', 'top-R': '#6c63ff55',
-  'mid-L': '#00ff8844', 'mid-C': 'rgba(255,255,255,0.03)', 'mid-R': '#00ff8844',
-  'bot-L': '#ff6b3555', 'bot-C': '#ff6b3555', 'bot-R': '#ff6b3555'
-};
-
-const ZONE_LABELS = [
-  ['↑◀', '↑', '↑▶'],
-  ['◀',  '·', '▶' ],
-  ['↓◀', '↓', '↓▶']
-];
+import { PipOverlay, ZONE_ACTION_COLORS, ZONE_LABELS } from './PipOverlay.js';
+export { ZONE_ACTION_COLORS, ZONE_LABELS };
 
 export class VisionManager {
   constructor() {
@@ -33,6 +23,7 @@ export class VisionManager {
     this.isReady = false;
     this.hasPermission = false;
     this.activeMode = null; // 'zone' | 'handzone' | 'fingergesture' | 'handswipe'
+    this.pipOverlay = new PipOverlay();
 
     // CV Quality & Performance settings
     const savedRes = (typeof localStorage !== 'undefined') ? (localStorage.getItem('interrun_cv_res') || 'balanced') : 'balanced';
@@ -363,7 +354,7 @@ export class VisionManager {
     if (this.worker) return;
 
     try {
-      this.worker = new Worker(new URL('./vision.worker.js', import.meta.url), {
+      this.worker = new Worker(new URL('./VisionWorker.js', import.meta.url), {
         type: 'module'
       });
 
@@ -737,170 +728,29 @@ export class VisionManager {
   }
 
   _renderPreview(now) {
-    if (!this.ctx || !this.canvas) return;
-
-    // Skip rendering if PIP is hidden
-    const pip = document.getElementById('webcam-pip');
-    if (!pip || pip.classList.contains('hidden')) return;
-
-    // If PIP is turned off by user, hide and bail
-    if (this.settings.pipMode === 'off') {
-      pip.classList.add('hidden');
-      return;
-    }
-
-    // ~22 FPS cap for PIP overlay (45ms minimum between draws)
-    if (now - this._lastDrawTime < 45) return;
-    this._lastDrawTime = now;
-
-    const W = this.canvas.width;
-    const H = this.canvas.height;
-    const ctx = this.ctx;
-
-    if (this.settings.pipMode === 'minimal') {
-      // Minimal mode: solid fill — avoids GPU video-blit overhead entirely
-      ctx.fillStyle = '#080d1a';
-      ctx.fillRect(0, 0, W, H);
-    } else {
-      // Full mode: mirrored webcam video — single save/restore wraps the transform
-      ctx.save();
-      ctx.clearRect(0, 0, W, H);
-      ctx.setTransform(-1, 0, 0, 1, W, 0); // mirror in one step, no scale()
-      ctx.drawImage(this.video, 0, 0, W, H);
-      ctx.restore();
-    }
-
-    // Zone grid overlay (stage 2 & 3: zone and handzone only)
-    if (this.activeMode === 'zone' || this.activeMode === 'handzone') {
-      this._renderZoneGrid(W, H);
-    }
-
-    // Landmark points from worker (no save/restore — plain arc fills)
-    const pts = this.currentState.points;
-    if (pts && pts.length > 0) {
-      for (const p of pts) {
-        this._drawPoint(p.x, p.y, p.color || '#00e5ff', p.r || 4);
-      }
-    }
-
-    // If active model is not loaded yet, render gentle loading banner in PIP without occluding the preview
-    if (!this.isModelReadyForMode(this.activeMode)) {
-      ctx.save();
-      const bannerH = 20;
-      ctx.fillStyle = 'rgba(8, 13, 26, 0.85)';
-      ctx.fillRect(4, H - bannerH - 4, W - 8, bannerH);
-      ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(4, H - bannerH - 4, W - 8, bannerH);
-      ctx.fillStyle = '#ffd700';
-      ctx.font = 'bold 9px Outfit, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      const pct = Math.round((this.preloadProgress || 0) * 100);
-      const text = pct > 0 && pct < 100 ? `⚡ LOADING AI (${pct}%)...` : '⚡ PREPARING AI...';
-      ctx.fillText(text, W / 2, H - 4 - bannerH / 2);
-      ctx.restore();
-    }
-
-    // Status badge (gesture / action text)
-    const hasText = !!this.currentState.debugText;
-    if (hasText) {
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.75)';
-      ctx.fillRect(6, 6, 180, 22);
-      ctx.fillStyle = '#00e5ff';
-      ctx.font = 'bold 11px Outfit, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText(this.currentState.debugText, 12, 21);
-      ctx.restore();
-    }
+    this.pipOverlay.render({
+      canvas: this.canvas,
+      ctx: this.ctx,
+      video: this.video,
+      state: this.currentState,
+      settings: this.settings,
+      activeMode: this.activeMode,
+      isModelReady: this.isModelReadyForMode(this.activeMode),
+      preloadProgress: this.preloadProgress,
+      now
+    });
   }
 
-  /**
-   * Draws zone grid and highlights active cell.
-   * Lines are drawn based on REAL thresholds (not uniform screen thirds).
-   * Hand: X 33/66%, Y 22/78%
-   * Face: X 40/60%, Y 28/72%
-   */
   _renderZoneGrid(W, H) {
-    const isHand = this.activeMode === 'handzone' || (this.activeMode === 'zone' && this.currentState.zoneSource === 'hands');
-    const isFace = !isHand;
-
-    // Real thresholds X
-    const xLeftPct  = isFace ? 0.40 : 0.33;
-    const xRightPct = isFace ? 0.60 : 0.66;
-
-    // Real thresholds Y (enlarged upper zone)
-    const yTopPct = isFace ? 0.35 : 0.33;
-    const yBotPct = isFace ? 0.72 : 0.76;
-
-    // Active column / row
-    const col = this.activeMode === 'handzone' ? this.currentState.hzCol : this.currentState.zoneCol;
-    const row = this.activeMode === 'handzone' ? this.currentState.hzRow : this.currentState.zoneRow;
-
-    // Pixel divider coordinates
-    const xL = xLeftPct  * W;
-    const xR = xRightPct * W;
-    const yT = yTopPct   * H;
-    const yB = yBotPct   * H;
-
-    // --- Active cell highlight ---
-    const x0 = col === 'L' ? 0  : col === 'R' ? xR : xL;
-    const x1 = col === 'L' ? xL : col === 'R' ? W  : xR;
-    const y0 = row === 'top' ? 0  : row === 'bot' ? yB : yT;
-    const y1 = row === 'top' ? yT : row === 'bot' ? H  : yB;
-
-    const actionKey = `${row}-${col}`;
-    this.ctx.save();
-    this.ctx.fillStyle = ZONE_ACTION_COLORS[actionKey] || 'rgba(255,255,255,0.06)';
-    this.ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-
-    // --- Grid lines based on real thresholds (batched path) ---
-    this.ctx.strokeStyle = 'rgba(0, 229, 255, 0.50)';
-    this.ctx.lineWidth = 1.5;
-    this.ctx.setLineDash([4, 3]);
-
-    this.ctx.beginPath();
-    this.ctx.moveTo(xL, 0); this.ctx.lineTo(xL, H);
-    this.ctx.moveTo(xR, 0); this.ctx.lineTo(xR, H);
-    this.ctx.moveTo(0, yT); this.ctx.lineTo(W, yT);
-    this.ctx.moveTo(0, yB); this.ctx.lineTo(W, yB);
-    this.ctx.stroke();
-
-    // --- Icons in cells (zero allocation) ---
-    this.ctx.setLineDash([]);
-    this.ctx.font = 'bold 9px sans-serif';
-    this.ctx.textAlign = 'center';
-    this.ctx.textBaseline = 'middle';
-
-    const colIdx = col === 'L' ? 0 : col === 'R' ? 2 : 1;
-    const rowIdx = row === 'top' ? 0 : row === 'bot' ? 2 : 1;
-
-    for (let r = 0; r < 3; r++) {
-      const cy = r === 0 ? yT / 2 : r === 1 ? (yT + yB) / 2 : (yB + H) / 2;
-      for (let c = 0; c < 3; c++) {
-        const cx = c === 0 ? xL / 2 : c === 1 ? (xL + xR) / 2 : (xR + W) / 2;
-        this.ctx.fillStyle = (r === rowIdx && c === colIdx) ? '#ffffff' : 'rgba(255,255,255,0.35)';
-        this.ctx.fillText(ZONE_LABELS[r][c], cx, cy);
-      }
+    if (this.ctx) {
+      this.pipOverlay.renderZoneGrid(this.ctx, W, H, this.activeMode, this.currentState);
     }
-
-    this.ctx.restore();
   }
-
 
   _drawPoint(normX, normY, color, radius = 4) {
-    if (!this.ctx || !this.canvas) return;
-    this.ctx.save();
-    this.ctx.fillStyle = color;
-    this.ctx.beginPath();
-    this.ctx.arc(normX * this.canvas.width, normY * this.canvas.height, radius, 0, Math.PI * 2);
-    this.ctx.fill();
-    // Border for enhanced visibility
-    this.ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-    this.ctx.lineWidth = 1.5;
-    this.ctx.stroke();
-    this.ctx.restore();
+    if (this.ctx && this.canvas) {
+      this.pipOverlay.drawPoint(this.ctx, this.canvas, normX, normY, color, radius);
+    }
   }
 
   update() {

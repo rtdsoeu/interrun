@@ -1,3 +1,8 @@
+docs
+approbation
+scratch
+*.pdf
+*.docx
 # Logs
 logs
 *.log

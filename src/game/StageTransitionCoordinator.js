@@ -11,9 +11,9 @@ export class StageTransitionCoordinator {
   /**
    * @param {object} params
    * @param {import('./ScoreSystem.js').ScoreSystem} params.scoreSystem
-   * @param {import('./Obstacles.js').ObstacleManager} params.obstacleManager
+   * @param {import('./ObstacleManager.js').ObstacleManager} params.obstacleManager
    * @param {import('../audio/SoundFx.js').SoundFx} params.soundFx
-   * @param {import('../ui/HUD.js').HUD} params.hud
+   * @param {import('../ui/Hud.js').Hud} params.hud
    * @param {(stage: number) => void} params.onApplyStageSwitch
    */
   constructor({ scoreSystem, obstacleManager, soundFx, hud, onApplyStageSwitch }) {
