@@ -49,6 +49,9 @@ export class VisionManager {
     this._watchdogTimer = null;
     this._rvfcId = null;
     this._initPromise = null;
+    this._cameraFrameSeq = 0;
+    this._lastDispatchedSeq = -1;
+    this._lastDispatchedVideoTime = -1;
 
     // Platform detection (iOS & Safari have known WebKit quirks with VideoFrame & off-screen video)
     const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
@@ -79,6 +82,7 @@ export class VisionManager {
     this._camFpsTimer = performance.now();
     this._cvFrameCount = 0;
     this._cvFpsTimer = performance.now();
+    this._cvDetectionCount = 0;
     this.modelsReady = false;
     this.faceModelReady = false;
     this.handsModelReady = false;
@@ -404,6 +408,13 @@ export class VisionManager {
           this._workerBusy = false;
           if (msg.state) {
             this.currentState = msg.state;
+            const hasPoints = Array.isArray(msg.state.points) && msg.state.points.length > 0;
+            const hasSource = Boolean(msg.state.zoneSource || msg.state.hzSource || msg.state.fgGesture || msg.state.hsHandPos || msg.state.handDetected);
+            if (hasPoints || hasSource) {
+              this._cvDetectionCount++;
+            } else {
+              this._cvDetectionCount = 0;
+            }
           }
           const now = performance.now();
           const currentDuration = msg.inferDuration ?? Math.round(now - this._lastSendTime);
@@ -422,8 +433,12 @@ export class VisionManager {
               this.onFpsUpdate(this.cvFps, this.cvFrametime, this.realCamFps || this.hardwareCamFps);
             }
           }
-          // Reactive dispatch: immediately pipeline the next frame as soon as worker finishes
-          this._dispatchFrame(now);
+          // Reactive dispatch: only pipeline next frame if camera has delivered a newer frame
+          const hasNewCameraFrame = this._cameraFrameSeq > this._lastDispatchedSeq
+            || (this.video && this.video.currentTime !== this._lastDispatchedVideoTime);
+          if (hasNewCameraFrame) {
+            this._dispatchFrame(now);
+          }
         } else if (msg.type === 'error') {
           this._workerBusy = false;
           console.warn('[VisionManager] Worker error:', msg.error);
@@ -444,6 +459,10 @@ export class VisionManager {
 
   setMode(mode) {
     this.activeMode = mode;
+    this._cvDetectionCount = 0;
+    if (!mode) {
+      this.currentState = null;
+    }
     if (this.worker) {
       const rootUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname.replace(/\/$/, '')}` : '';
       this.worker.postMessage({ type: 'setMode', mode, rootUrl });
@@ -451,6 +470,26 @@ export class VisionManager {
     // Kick off dispatch immediately when new mode is activated
     if (this._loopRunning && this._workerReady && !this._workerBusy) {
       this._dispatchFrame(performance.now());
+    }
+  }
+
+  /**
+   * Checks whether the current CV stage has received and confirmed valid detections from the model.
+   * @param {number} stage Target gameplay stage (0..5)
+   * @returns {boolean}
+   */
+  hasValidDetection(stage) {
+    if (stage === undefined || stage === null || stage < 2) return true;
+    if (this.hasCameraError) return true;
+    return this._cvDetectionCount >= 2;
+  }
+
+  /**
+   * Triggers a clean camera angle and pose recalibration.
+   */
+  recalibrate() {
+    if (this.worker) {
+      this.worker.postMessage({ type: 'recalibrate', mode: this.activeMode });
     }
   }
 
@@ -603,68 +642,58 @@ export class VisionManager {
 
     this._workerBusy = true;
     this._lastSendTime = now;
+    this._lastDispatchedSeq = this._cameraFrameSeq;
+    this._lastDispatchedVideoTime = this.video ? this.video.currentTime : 0;
 
-    if (this._supportsVideoFrame) {
-      try {
-        const frame = new VideoFrame(this.video);
-        this.worker.postMessage(
-          { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution },
-          [frame]
-        );
+    const preset = CV_RESOLUTION_PRESETS[this.settings.resolution] || CV_RESOLUTION_PRESETS.balanced;
+    const vw = this.video.videoWidth || 320;
+    const vh = this.video.videoHeight || 240;
+    const scale = Math.min(preset.width / vw, preset.height / vh, 1.0);
+    const targetW = Math.max(64, Math.round(vw * scale));
+    const targetH = Math.max(48, Math.round(vh * scale));
+
+    const postBitmap = (frame) => {
+      if (!this._loopRunning || !this._workerBusy) {
+        if (frame && typeof frame.close === 'function') frame.close();
         return;
-      } catch (vfErr) {
-        // VideoFrame failed on this browser/platform (e.g. mobile Safari) — permanently switch to createImageBitmap
-        this._supportsVideoFrame = false;
       }
-    }
+      const msg = { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution };
+      try {
+        this.worker.postMessage(msg, [frame]);
+      } catch {
+        this.worker.postMessage(msg);
+      }
+    };
 
-    createImageBitmap(this.video)
-      .then((frame) => {
-        if (!this._loopRunning || !this._workerBusy) {
-          frame.close();
-          return;
-        }
-        const msg = { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution };
-        try {
-          this.worker.postMessage(msg, [frame]);
-        } catch {
-          this.worker.postMessage(msg);
-        }
-      })
-      .catch((bitmapErr) => {
-        // Fallback for Safari/WebKit if direct video createImageBitmap fails:
-        // paint into an in-memory 2D canvas and extract bitmap from canvas.
-        try {
-          if (!this._fallbackCanvas) {
-            this._fallbackCanvas = document.createElement('canvas');
-            this._fallbackCtx = this._fallbackCanvas.getContext('2d', { willReadFrequently: true });
-          }
-          const vw = this.video.videoWidth || 320;
-          const vh = this.video.videoHeight || 240;
-          if (this._fallbackCanvas.width !== vw || this._fallbackCanvas.height !== vh) {
-            this._fallbackCanvas.width = vw;
-            this._fallbackCanvas.height = vh;
-          }
-          this._fallbackCtx.drawImage(this.video, 0, 0, vw, vh);
-          createImageBitmap(this._fallbackCanvas)
-            .then((frame) => {
-              if (!this._loopRunning || !this._workerBusy) {
-                frame.close();
-                return;
+    // Hardware downscale via createImageBitmap with low scaling overhead
+    const bitmapOpts = { resizeWidth: targetW, resizeHeight: targetH, resizeQuality: 'low' };
+    createImageBitmap(this.video, bitmapOpts)
+      .then(postBitmap)
+      .catch(() => {
+        // Fallback 1: basic createImageBitmap without resize options (worker will scale)
+        createImageBitmap(this.video)
+          .then(postBitmap)
+          .catch(() => {
+            // Fallback 2: Canvas drawImage for iOS Safari / WebKit quirks
+            try {
+              if (!this._fallbackCanvas) {
+                this._fallbackCanvas = document.createElement('canvas');
+                this._fallbackCtx = this._fallbackCanvas.getContext('2d', { willReadFrequently: true });
               }
-              const msg = { type: 'process', frame, timestamp: now, mode: this.activeMode, resolution: this.settings.resolution };
-              try {
-                this.worker.postMessage(msg, [frame]);
-              } catch {
-                this.worker.postMessage(msg);
+              if (this._fallbackCanvas.width !== targetW || this._fallbackCanvas.height !== targetH) {
+                this._fallbackCanvas.width = targetW;
+                this._fallbackCanvas.height = targetH;
               }
-            })
-            .catch(() => {
+              this._fallbackCtx.drawImage(this.video, 0, 0, targetW, targetH);
+              createImageBitmap(this._fallbackCanvas)
+                .then(postBitmap)
+                .catch(() => {
+                  this._workerBusy = false;
+                });
+            } catch {
               this._workerBusy = false;
-            });
-        } catch {
-          this._workerBusy = false;
-        }
+            }
+          });
       });
   }
 
@@ -693,6 +722,7 @@ export class VisionManager {
           this._camFpsTimer = now;
         }
 
+        this._cameraFrameSeq++;
         this._dispatchFrame(now);
         if (this.video && 'requestVideoFrameCallback' in this.video) {
           this._rvfcId = this.video.requestVideoFrameCallback(onVideoFrame);
@@ -709,7 +739,9 @@ export class VisionManager {
       if (this._workerBusy && now - this._lastSendTime > 1000) {
         this._workerBusy = false;
       }
-      this._dispatchFrame(now);
+      if (!('requestVideoFrameCallback' in (this.video || {})) || this._cameraFrameSeq > this._lastDispatchedSeq) {
+        this._dispatchFrame(now);
+      }
       this._watchdogTimer = setTimeout(watchdogTick, 33);
     };
     this._watchdogTimer = setTimeout(watchdogTick, 33);

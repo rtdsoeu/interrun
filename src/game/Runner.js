@@ -37,6 +37,7 @@ export class Runner {
     this.actionDelay = 0.18; // ~180 ms between consecutive jumps / slides
     this.jumpCooldown = 0;
     this.slideCooldown = 0;
+    this._jumpBuffered = false;
 
     this.state = PlayerState.RUNNING;
     this.runCycleTime = 0;
@@ -269,6 +270,7 @@ export class Runner {
     this.slideTimer = 0;
     this.jumpCooldown = 0;
     this.slideCooldown = 0;
+    this._jumpBuffered = false;
     this.runCycleTime = 0;
     this.state = PlayerState.RUNNING;
     this.meshGroup.position.set(0, 0, 0);
@@ -331,15 +333,19 @@ export class Runner {
     }
 
     // Jump
-    if (input.jump && this.jumpCooldown <= 0) {
-      if (this.state === PlayerState.RUNNING || this.state === PlayerState.SLIDING) {
+    if (input.jump) {
+      if ((this.state === PlayerState.RUNNING || this.state === PlayerState.SLIDING) && this.jumpCooldown <= 0) {
         if (this.state === PlayerState.SLIDING) {
           this.slideCooldown = this.actionDelay;
         }
         this.state = PlayerState.JUMPING;
         this.yVelocity = this.jumpSpeed;
         this.slideTimer = 0;
+        this._jumpBuffered = false;
         if (this.soundFx) this.soundFx.playJump();
+      } else if (this.state === PlayerState.JUMPING && this.pos.y < 0.6 && this.yVelocity < 0) {
+        // Pre-landing buffer: only triggers if pressed right before touchdown (~50ms)
+        this._jumpBuffered = true;
       }
     }
   }
@@ -374,7 +380,15 @@ export class Runner {
         this.pos.y = 0;
         this.yVelocity = 0;
         this.state = this.slideTimer > 0 ? PlayerState.SLIDING : PlayerState.RUNNING;
-        this.jumpCooldown = this.actionDelay;
+        this.jumpCooldown = 0; // Instant jump response upon landing
+
+        if (this._jumpBuffered && this.state === PlayerState.RUNNING) {
+          this._jumpBuffered = false;
+          this.state = PlayerState.JUMPING;
+          this.yVelocity = this.jumpSpeed;
+          this.slideTimer = 0;
+          if (this.soundFx) this.soundFx.playJump();
+        }
       }
     }
 

@@ -316,6 +316,41 @@ export class SoundFx {
     }
   }
 
+  /** Near-Miss / Grazing Dodge: High-speed air whoosh and resonant rising chime */
+  playNearMiss() {
+    const ctx = this._ensureContext();
+    if (!ctx || this.muted) return;
+
+    try {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.exponentialRampToValueAtTime(1040, now + 0.16);
+
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(750, now);
+      filter.frequency.exponentialRampToValueAtTime(1800, now + 0.16);
+      filter.Q.value = 2.5;
+
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.38 * this.sfxVolume, now + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.20);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this._sfxGain || this._masterGain || ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.22);
+    } catch (e) {
+      console.warn('[SoundFx] playNearMiss failed', e);
+    }
+  }
+
   /** Crash / Impact: Low distortion impact and noise crunch */
   playCrash() {
     const ctx = this._ensureContext();

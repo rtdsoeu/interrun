@@ -1,7 +1,32 @@
 import { OneEuroFilter2D } from '../OneEuroFilter.js';
+import { AdaptivePoseCalibrator } from '../AdaptivePoseCalibrator.js';
 
 export const noseFilter = new OneEuroFilter2D(0.8, 6.0, 1.0);       // Tuned for normalized head motion [0..1]
 export const handZoneFilter = new OneEuroFilter2D(1.0, 7.0, 1.0);   // Tuned for normalized 3x3 hand positioning
+
+export const faceCalibrator = new AdaptivePoseCalibrator({
+  defaultCenterX: 0.50,
+  defaultCenterY: 0.52,
+  leftBoundary: 0.40,
+  rightBoundary: 0.60,
+  jumpDelta: 0.09,
+  slideDelta: 0.14,
+  autoRecenterMidGame: true,
+  recenterHoldMs: 3000
+});
+
+export const handCalibrator = new AdaptivePoseCalibrator({
+  defaultCenterX: 0.50,
+  defaultCenterY: 0.55,
+  leftBoundary: 0.42,
+  rightBoundary: 0.58,
+  jumpDelta: 0.10,
+  slideDelta: 0.11,
+  hysteresisBand: 0.030,
+  calibrationFrames: 15,
+  autoRecenterMidGame: true,
+  recenterHoldMs: 3000
+});
 
 export const HYSTERESIS_BAND = 0.04; // 4% dead-band around each zone boundary
 export let zoneHyst = { col: 'C', row: 'mid' }; // committed state for ZoneControl (Stage 2)
@@ -10,6 +35,8 @@ export let hzHyst   = { col: 'C', row: 'mid' }; // committed state for HandZoneC
 export function resetZoneCalibration() {
   noseFilter.reset();
   handZoneFilter.reset();
+  faceCalibrator.reset();
+  handCalibrator.reset();
   zoneHyst = { col: 'C', row: 'mid' };
   hzHyst   = { col: 'C', row: 'mid' };
 }
@@ -106,11 +133,10 @@ export function processZone(bitmap, timestamp, faceLandmarker, baseState) {
       : rawNose;
     const mx = 1 - filteredNose.x;
 
-    const rawCol = toColZoneFace(filteredNose.x);
-    const rawRow = toRowZoneFace(filteredNose.y);
-
-    const col = applyColHysteresis(mx, rawCol, zoneHyst.col, 0.40, 0.60);
-    const row = applyRowHysteresis(filteredNose.y, rawRow, zoneHyst.row, 0.35, 0.72);
+    // Adaptive spatial calibration with camera tilt tracking and edge margin protection
+    const calib = faceCalibrator.update(mx, filteredNose.y, timestamp);
+    const col = calib.col;
+    const row = calib.row;
     zoneHyst.col = col;
     zoneHyst.row = row;
 
@@ -118,16 +144,54 @@ export function processZone(bitmap, timestamp, faceLandmarker, baseState) {
     state.zoneRow    = row;
     state.zoneSource = 'face';
 
-    state.debugText = zoneDebugText(col, row, '👤');
+    // Dynamic thresholds exported for PIP visualization
+    state.adaptiveZone = {
+      xL: calib.xLeft,
+      xR: calib.xRight,
+      yT: calib.yTop,
+      yB: calib.yBot,
+      cx: calib.centerX,
+      cy: calib.centerY,
+      warning: calib.warning,
+      isAsymmetric: calib.isAsymmetric,
+      state: calib.state,
+      isCalibrated: calib.isCalibrated,
+      calibrationProgress: calib.calibrationProgress,
+      repositionEvents: calib.repositionEvents
+    };
+
+    state.kinematics = {
+      source: 'face',
+      deltaDist: calib.deltaDist || 0,
+      speed: calib.motionSpeed || 0
+    };
+
+    let prefix = '👤';
+    if (!calib.isCalibrated) {
+      prefix = '📐 CALIBRATING';
+    } else if (calib.warning === 'tilt_down') {
+      prefix = '⚠️ TILT CAM DOWN';
+    } else if (calib.warning === 'tilt_up') {
+      prefix = '⚠️ TILT CAM UP';
+    }
+
+    state.debugText = zoneDebugText(col, row, prefix);
+
+    // Confidences normalized against dynamic thresholds
+    const halfW = Math.max(0.08, calib.centerX - calib.xLeft);
+    const halfH = Math.max(0.08, calib.centerY - calib.yTop);
+
     state.gestureConfidences = {
-      face_left: Number(Math.max(0, Math.min(1, (0.45 - mx) / 0.18)).toFixed(3)),
-      face_right: Number(Math.max(0, Math.min(1, (mx - 0.55) / 0.18)).toFixed(3)),
-      face_center: Number((Math.max(0, Math.min(1, 1 - Math.abs(mx - 0.50) / 0.16)) * Math.max(0, Math.min(1, 1 - Math.abs(filteredNose.y - 0.53) / 0.22))).toFixed(3)),
-      face_jump: Number(Math.max(0, Math.min(1, (0.42 - filteredNose.y) / 0.15)).toFixed(3)),
-      face_slide: Number(Math.max(0, Math.min(1, (filteredNose.y - 0.65) / 0.15)).toFixed(3))
+      face_left: Number(Math.max(0, Math.min(1, (calib.xLeft - mx + 0.05) / 0.15)).toFixed(3)),
+      face_right: Number(Math.max(0, Math.min(1, (mx - calib.xRight + 0.05) / 0.15)).toFixed(3)),
+      face_center: Number((Math.max(0, Math.min(1, 1 - Math.abs(mx - calib.centerX) / halfW)) * Math.max(0, Math.min(1, 1 - Math.abs(filteredNose.y - calib.centerY) / halfH))).toFixed(3)),
+      face_jump: Number(Math.max(0, Math.min(1, (calib.yTop - filteredNose.y + 0.05) / 0.15)).toFixed(3)),
+      face_slide: Number(Math.max(0, Math.min(1, (filteredNose.y - calib.yBot + 0.05) / 0.15)).toFixed(3))
     };
     state.points = [
-      { x: mx, y: filteredNose.y, color: '#00e5ff', r: 7 }
+      { x: mx, y: filteredNose.y, color: '#00e5ff', r: 7 },
+      // Subtle reference point for calibrated center
+      { x: calib.centerX, y: calib.centerY, color: 'rgba(0, 229, 255, 0.35)', r: 3 }
     ];
     return state;
   }
@@ -159,11 +223,10 @@ export function processHandZone(bitmap, timestamp, handLandmarker, baseState) {
       : rawPc;
     const mx = 1 - pc.x;
 
-    const rawCol = toColZone(pc.x);
-    const rawRow = toRowZone(pc.y);
-
-    const col = applyColHysteresis(mx, rawCol, hzHyst.col, 0.33, 0.66);
-    const row = applyRowHysteresis(pc.y, rawRow, hzHyst.row, 0.33, 0.76);
+    // Adaptive spatial calibration for Hand Zone (compact center, ergonomic vertical deltas)
+    const calib = handCalibrator.update(mx, pc.y, timestamp);
+    const col = calib.col;
+    const row = calib.row;
     hzHyst.col = col;
     hzHyst.row = row;
 
@@ -171,23 +234,75 @@ export function processHandZone(bitmap, timestamp, handLandmarker, baseState) {
     state.hzRow    = row;
     state.hzSource = 'hands';
 
-    state.debugText = zoneDebugText(col, row, '✋');
+    // Dynamic thresholds exported for PIP visualization
+    state.adaptiveZone = {
+      xL: calib.xLeft,
+      xR: calib.xRight,
+      yT: calib.yTop,
+      yB: calib.yBot,
+      cx: calib.centerX,
+      cy: calib.centerY,
+      warning: calib.warning,
+      isAsymmetric: calib.isAsymmetric,
+      state: calib.state,
+      isCalibrated: calib.isCalibrated,
+      calibrationProgress: calib.calibrationProgress,
+      repositionEvents: calib.repositionEvents
+    };
+
+    state.kinematics = {
+      source: 'hands',
+      deltaDist: calib.deltaDist || 0,
+      speed: calib.motionSpeed || 0
+    };
+
+    let prefix = '✋';
+    if (!calib.isCalibrated) {
+      prefix = '📐 CALIBRATING';
+    } else if (calib.warning === 'tilt_down') {
+      prefix = '⚠️ RAISE HAND';
+    } else if (calib.warning === 'tilt_up') {
+      prefix = '⚠️ LOWER HAND';
+    }
+
+    state.debugText = zoneDebugText(col, row, prefix);
+
+    // Confidences normalized against calibrated thresholds
+    const halfW = Math.max(0.08, calib.centerX - calib.xLeft);
+    const halfH = Math.max(0.08, calib.centerY - calib.yTop);
+
     state.gestureConfidences = {
-      hand_left: Number(Math.max(0, Math.min(1, (0.40 - mx) / 0.18)).toFixed(3)),
-      hand_right: Number(Math.max(0, Math.min(1, (mx - 0.60) / 0.18)).toFixed(3)),
-      hand_center: Number((Math.max(0, Math.min(1, 1 - Math.abs(mx - 0.50) / 0.18)) * Math.max(0, Math.min(1, 1 - Math.abs(pc.y - 0.55) / 0.24))).toFixed(3)),
-      hand_jump: Number(Math.max(0, Math.min(1, (0.40 - pc.y) / 0.15)).toFixed(3)),
-      hand_slide: Number(Math.max(0, Math.min(1, (pc.y - 0.70) / 0.15)).toFixed(3))
+      hand_left: Number(Math.max(0, Math.min(1, (calib.xLeft - mx + 0.04) / 0.14)).toFixed(3)),
+      hand_right: Number(Math.max(0, Math.min(1, (mx - calib.xRight + 0.04) / 0.14)).toFixed(3)),
+      hand_center: Number((Math.max(0, Math.min(1, 1 - Math.abs(mx - calib.centerX) / halfW)) * Math.max(0, Math.min(1, 1 - Math.abs(pc.y - calib.centerY) / halfH))).toFixed(3)),
+      hand_jump: Number(Math.max(0, Math.min(1, (calib.yTop - pc.y + 0.04) / 0.14)).toFixed(3)),
+      hand_slide: Number(Math.max(0, Math.min(1, (pc.y - calib.yBot + 0.04) / 0.14)).toFixed(3))
     };
     state.points = [
       { x: mx,             y: pc.y,      color: '#ffd700',             r: 8 },
       { x: 1 - hand[0].x,  y: hand[0].y, color: 'rgba(255,215,0,0.4)', r: 3 },
-      { x: 1 - hand[9].x,  y: hand[9].y, color: 'rgba(255,215,0,0.4)', r: 3 }
+      { x: 1 - hand[9].x,  y: hand[9].y, color: 'rgba(255,215,0,0.4)', r: 3 },
+      // Reference anchor for calibrated resting hand position
+      { x: calib.centerX,  y: calib.centerY, color: 'rgba(255, 215, 0, 0.40)', r: 3 }
     ];
   } else {
     hzHyst = { col: 'C', row: 'mid' };
     state.hzSource  = null;
     state.debugText = '✋ Show hand in camera';
+    state.adaptiveZone = {
+      xL: handCalibrator.leftBoundary,
+      xR: handCalibrator.rightBoundary,
+      yT: handCalibrator.fixedYTop || (handCalibrator.centerY - handCalibrator.jumpDelta),
+      yB: handCalibrator.fixedYBot || (handCalibrator.centerY + handCalibrator.slideDelta),
+      cx: handCalibrator.centerX,
+      cy: handCalibrator.centerY,
+      warning: handCalibrator.lastWarning,
+      isAsymmetric: handCalibrator.isAsymmetric,
+      state: handCalibrator.state,
+      isCalibrated: handCalibrator.isCalibrated,
+      calibrationProgress: Math.min(1.0, handCalibrator.warmupFrames / handCalibrator.calibrationFrames),
+      repositionEvents: handCalibrator.repositionEvents
+    };
   }
 
   return state;

@@ -3,6 +3,7 @@
  */
 
 import { isCvStage } from './BenchmarkDefinitions.js';
+import { i18n } from '../i18n/I18n.js';
 
 export class BenchmarkCameraPreview {
   /**
@@ -113,7 +114,7 @@ export class BenchmarkCameraPreview {
       ctx.font = 'bold 12px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('⏳ Підключення вебкамери...', W / 2, H / 2);
+      ctx.fillText(i18n?.t ? i18n.t('hud.cam.connecting') : '⏳ Підключення вебкамери...', W / 2, H / 2);
       return;
     }
 

@@ -19,12 +19,86 @@ export class TelemetryUI {
     const kpiDist = document.getElementById('telem-kpi-dist');
     const kpiTime = document.getElementById('telem-kpi-time');
     const kpiFatigue = document.getElementById('telem-kpi-fatigue');
+    const styleLabel = document.getElementById('telem-style-label');
+    const styleReg = document.getElementById('telem-style-reg');
+    const styleManeuver = document.getElementById('telem-style-maneuver');
+    const styleKinematics = document.getElementById('telem-style-kinematics');
+
+    const lastRun = history[history.length - 1] || telemetryManager.currentSession;
+    const playStyle = lastRun?.dda?.playStyle;
+    const kinSummary = telemetryManager.getKinematicSummary();
+
+    if (styleLabel && styleReg) {
+      if (playStyle && playStyle.sampleCount >= 3) {
+        let icon = '⚖️';
+        let color = '#00ff88';
+        if (playStyle.archetype === 'risk_taker') {
+          icon = '🔥';
+          color = '#ff3d5e';
+        } else if (playStyle.archetype === 'cautious') {
+          icon = '🛡️';
+          color = '#4cc9f0';
+        } else if (playStyle.archetype === 'variable') {
+          icon = '⚡';
+          color = '#ffd700';
+        }
+
+        let personaKey = 'telemetry.style.persona.flow_master';
+        if (playStyle.archetype === 'risk_taker') {
+          personaKey = playStyle.maneuverArchetype === 'weaver' ? 'telemetry.style.persona.risk_weaver'
+                     : playStyle.maneuverArchetype === 'acrobat' ? 'telemetry.style.persona.risk_acrobat'
+                     : 'telemetry.style.persona.risk_taker';
+        } else if (playStyle.archetype === 'cautious') {
+          personaKey = playStyle.maneuverArchetype === 'weaver' ? 'telemetry.style.persona.tactical_weaver'
+                     : playStyle.maneuverArchetype === 'acrobat' ? 'telemetry.style.persona.tactical_acrobat'
+                     : 'telemetry.style.persona.tactician';
+        } else if (playStyle.archetype === 'variable') {
+          personaKey = 'telemetry.style.persona.dynamic';
+        } else if (playStyle.archetype === 'calibrating') {
+          personaKey = 'telemetry.style.persona.calibrating';
+        } else {
+          personaKey = playStyle.maneuverArchetype === 'weaver' ? 'telemetry.style.persona.flow_weaver'
+                     : playStyle.maneuverArchetype === 'acrobat' ? 'telemetry.style.persona.flow_acrobat'
+                     : 'telemetry.style.persona.flow_master';
+        }
+
+        const title = i18n?.t?.(personaKey) || playStyle.personaTitle || `${icon} ${playStyle.label}`;
+        styleLabel.innerHTML = `<span style="color:${color};">${title}</span>`;
+        styleReg.textContent = `${playStyle.regularityPct}% ${i18n.t('telemetry.style.reg_title').toLowerCase()} (${i18n.lang === 'uk' ? 'сер.' : 'avg.'} ${playStyle.avgMarginMeters}m)`;
+      } else {
+        styleLabel.textContent = i18n?.t?.('telemetry.style.persona.flow_master') || '⚡ Flow Master';
+        styleReg.textContent = i18n.t('telemetry.style.calibrating');
+      }
+    }
+
+    if (styleManeuver) {
+      if (playStyle && playStyle.weavesPct !== undefined) {
+        const icon = playStyle.maneuverIcon || '🏃';
+        const maneuverKey = playStyle.maneuverArchetype === 'weaver' ? 'telemetry.style.maneuver.weaver'
+                          : playStyle.maneuverArchetype === 'acrobat' ? 'telemetry.style.maneuver.acrobat'
+                          : 'telemetry.style.maneuver.universal';
+        const label = i18n?.t?.(maneuverKey) || playStyle.maneuverLabel || i18n.t('telemetry.style.maneuvers');
+        styleManeuver.textContent = `${icon} ${label} (${playStyle.weavesPct}% ${i18n.t('telemetry.style.lanes')} / ${playStyle.verticalsPct}% ${i18n.t('telemetry.style.jumps')})`;
+      } else {
+        styleManeuver.textContent = i18n.t('telemetry.style.maneuver_calib');
+      }
+    }
+
+    if (styleKinematics) {
+      if (kinSummary && (kinSummary.headMeters > 0 || kinSummary.handMeters > 0)) {
+        const kinLabel = (kinSummary.style && i18n?.t?.(`telemetry.style.kin.${kinSummary.style}`)) || kinSummary.styleLabel;
+        styleKinematics.textContent = `${kinSummary.icon} ${kinLabel} (${kinSummary.headMeters} ${i18n.t('telemetry.style.head')}, ${kinSummary.handMeters} ${i18n.t('telemetry.style.hand')})`;
+      } else if (playStyle?.nearMissCount > 0) {
+        styleKinematics.textContent = `🔥 ${playStyle.nearMissCount} ${i18n.t('telemetry.style.near_misses')}`;
+      } else {
+        styleKinematics.textContent = i18n.t('telemetry.style.bio_gathering');
+      }
+    }
 
     if (metrics) {
       if (kpiRuns) kpiRuns.textContent = String(metrics.totalRuns);
       if (kpiDist) kpiDist.textContent = `${metrics.totalDistanceKm} km`;
       if (kpiTime) kpiTime.textContent = `${metrics.avgSessionDurationSec} s`;
-      const lastRun = history[history.length - 1];
       if (kpiFatigue) kpiFatigue.textContent = String(lastRun?.fatigueIndex ?? '1.00');
     } else {
       if (kpiRuns) kpiRuns.textContent = '0';
@@ -135,7 +209,7 @@ export class TelemetryUI {
     const saveBtn = document.getElementById('btn-survey-save');
     if (saveBtn) {
       const orig = saveBtn.textContent;
-      saveBtn.textContent = '✓ Збережено!';
+      saveBtn.textContent = i18n.t('telemetry.survey.saved');
       saveBtn.style.background = '#00ff88';
       saveBtn.style.color = '#000';
       setTimeout(() => {

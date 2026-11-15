@@ -3,6 +3,8 @@ approbation
 scratch
 *.pdf
 *.docx
+*.txt
+*.md
 # Logs
 logs
 *.log

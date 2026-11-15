@@ -49,13 +49,13 @@ export function isSwipePermitted(detectedSwipe, handPos, timestamp, displacement
 
   // 1. OPPOSITE SWIPE VALIDATION (Temporal Anti-Recoil)
   if (isOpposite) {
-    const minTurnaround = isUltraLowFps ? Math.max(220, hsAvgFrameInterval * 2.0)
-                        : isLowFps      ? Math.max(200, hsAvgFrameInterval * 2.0)
-                        : 240;
+    const minTurnaround = isUltraLowFps ? Math.max(180, hsAvgFrameInterval * 2.0)
+                        : isLowFps      ? Math.max(150, hsAvgFrameInterval * 2.0)
+                        : 160;
 
     if (timeSinceLast < minTurnaround) {
-      const isStrongCounter = (displacement >= 0.16) && (velocity >= 0.65);
-      if (!(timeSinceLast >= 140 && isStrongCounter)) {
+      const isStrongCounter = (displacement >= 0.12) && (velocity >= 0.45);
+      if (!(timeSinceLast >= 100 && isStrongCounter)) {
         return false;
       }
     }
@@ -236,10 +236,10 @@ export function processHandSwipe(bitmap, timestamp, handLandmarker, baseState) {
       const absStepVx = Math.abs(stepVx);
       const absStepVy = Math.abs(stepVy);
 
-      const minStepDx = isUltraLowFps ? 0.08 : isLowFps ? 0.11 : 0.13;
-      const minStepDy = isUltraLowFps ? 0.07 : isLowFps ? 0.10 : 0.12;
-      const minStepVx = isUltraLowFps ? 0.25 : isLowFps ? 0.38 : 0.52;
-      const minStepVy = isUltraLowFps ? 0.22 : isLowFps ? 0.34 : 0.48;
+      const minStepDx = isUltraLowFps ? 0.065 : isLowFps ? 0.10 : 0.13;
+      const minStepDy = isUltraLowFps ? 0.055 : isLowFps ? 0.09 : 0.12;
+      const minStepVx = isUltraLowFps ? 0.20 : isLowFps ? 0.35 : 0.52;
+      const minStepVy = isUltraLowFps ? 0.18 : isLowFps ? 0.30 : 0.48;
       const domRatio  = isUltraLowFps ? 1.15 : isLowFps ? 1.20 : 1.25;
 
       if (absStepDx >= minStepDx && absStepVx >= minStepVx && absStepDx > absStepDy * domRatio) {

@@ -18,13 +18,41 @@ function updateManifest() {
   return files;
 }
 
+function ensureMediaPipeSourceMaps() {
+  const mpDir = path.resolve(process.cwd(), 'node_modules/@mediapipe/tasks-vision');
+  if (fs.existsSync(mpDir)) {
+    const srcMjsMap = path.join(mpDir, 'vision_bundle.mjs.map');
+    const destMjsMap = path.join(mpDir, 'vision_bundle_mjs.js.map');
+    if (fs.existsSync(srcMjsMap) && !fs.existsSync(destMjsMap)) {
+      try { fs.copyFileSync(srcMjsMap, destMjsMap); } catch (_) {}
+    }
+    const srcCjsMap = path.join(mpDir, 'vision_bundle.cjs.map');
+    const destCjsMap = path.join(mpDir, 'vision_bundle_cjs.js.map');
+    if (fs.existsSync(srcCjsMap) && !fs.existsSync(destCjsMap)) {
+      try { fs.copyFileSync(srcCjsMap, destCjsMap); } catch (_) {}
+    }
+  }
+}
+ensureMediaPipeSourceMaps();
+
 function createMediaPipePatchPlugin() {
   return {
     name: 'patch-mediapipe-worker-ios',
     enforce: 'pre',
+    load(id) {
+      if (id.includes('@mediapipe') || id.includes('vision_bundle')) {
+        const cleanId = id.split('?')[0];
+        if (fs.existsSync(cleanId) && fs.statSync(cleanId).isFile()) {
+          let code = fs.readFileSync(cleanId, 'utf-8');
+          // Strip any sourceMappingURL before Vite's default loader parses it
+          code = code.replace(/\/\/#\s*sourceMappingURL=.*/g, '');
+          return { code, map: null };
+        }
+      }
+    },
     transform(code, id) {
       if (id.includes('@mediapipe') || id.includes('vision_bundle')) {
-        let patched = code.replace(/\/\/# sourceMappingURL=.*/g, '');
+        let patched = code.replace(/\/\/#\s*sourceMappingURL=.*/g, '');
 
         // 1. Bypass MediaPipe's broken Safari version check that causes fallback to document.createElement("canvas") in workers
         const safariCheck = '!function(t=navigator){return(t=t.userAgent).includes("Safari")&&!t.includes("Chrome")}(t)||!!((t=t.userAgent.match(/Version\\/([\\d]+).*Safari/))&&t.length>=1&&Number(t[1])>=17)';
@@ -61,9 +89,11 @@ export default defineConfig({
       name: 'audio-manifest-plugin',
       buildStart() {
         updateManifest();
+        ensureMediaPipeSourceMaps();
       },
       configureServer(server) {
         updateManifest();
+        ensureMediaPipeSourceMaps();
         server.middlewares.use('/api/audio-tracks', (req, res) => {
           const files = updateManifest();
           res.setHeader('Content-Type', 'application/json');

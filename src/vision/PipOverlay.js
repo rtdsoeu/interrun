@@ -126,13 +126,12 @@ export class PipOverlay {
     const isHand = activeMode === 'handzone' || (activeMode === 'zone' && state?.zoneSource === 'hands');
     const isFace = !isHand;
 
-    // Real thresholds X
-    const xLeftPct  = isFace ? 0.40 : 0.33;
-    const xRightPct = isFace ? 0.60 : 0.66;
-
-    // Real thresholds Y (enlarged upper zone)
-    const yTopPct = isFace ? 0.35 : 0.33;
-    const yBotPct = isFace ? 0.72 : 0.76;
+    // Use dynamic adaptive thresholds if calibrated by AdaptivePoseCalibrator, else fallback to nominal
+    const az = state?.adaptiveZone;
+    const xLeftPct  = az ? az.xL : (isFace ? 0.40 : 0.42);
+    const xRightPct = az ? az.xR : (isFace ? 0.60 : 0.58);
+    const yTopPct   = az ? az.yT : (isFace ? 0.43 : 0.45);
+    const yBotPct   = az ? az.yB : (isFace ? 0.66 : 0.66);
 
     // Active column / row
     const col = activeMode === 'handzone' ? state?.hzCol : state?.zoneCol;
@@ -155,8 +154,8 @@ export class PipOverlay {
     ctx.fillStyle = ZONE_ACTION_COLORS[actionKey] || 'rgba(255,255,255,0.06)';
     ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
 
-    // --- Grid lines based on real thresholds (batched path) ---
-    ctx.strokeStyle = 'rgba(0, 229, 255, 0.50)';
+    // --- Grid lines based on dynamic adaptive thresholds ---
+    ctx.strokeStyle = isHand ? 'rgba(255, 215, 0, 0.60)' : (az?.isAsymmetric ? 'rgba(255, 215, 0, 0.65)' : 'rgba(0, 229, 255, 0.50)');
     ctx.lineWidth = 1.5;
     ctx.setLineDash([4, 3]);
 
@@ -183,6 +182,43 @@ export class PipOverlay {
         ctx.fillStyle = (r === rowIdx && c === colIdx) ? '#ffffff' : 'rgba(255,255,255,0.35)';
         ctx.fillText(ZONE_LABELS[r][c], cx, cy);
       }
+    }
+
+    // --- Dynamic Camera Tilt & Adaptive Centering Status Badge ---
+    if (az?.isCalibrated === false || az?.state === 'warmup') {
+      const pct = Math.round((az?.calibrationProgress || 0) * 100);
+      ctx.fillStyle = isHand ? 'rgba(255, 215, 0, 0.90)' : 'rgba(0, 229, 255, 0.90)';
+      ctx.fillRect(4, 4, W - 8, 14);
+      ctx.fillStyle = '#080d1a';
+      ctx.font = 'bold 8px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const label = isHand ? `📐 CALIBRATING HAND (${pct}%)` : `📐 CALIBRATING ANGLE (${pct}%)`;
+      ctx.fillText(label, W / 2, 11);
+    } else if (az?.warning === 'tilt_down') {
+      ctx.fillStyle = 'rgba(255, 107, 53, 0.90)';
+      ctx.fillRect(4, 4, W - 8, 14);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 8px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(isHand ? '⚠️ RAISE HAND HIGHER' : '⚠️ TILT CAM DOWN', W / 2, 11);
+    } else if (az?.warning === 'tilt_up') {
+      ctx.fillStyle = 'rgba(255, 107, 53, 0.90)';
+      ctx.fillRect(4, 4, W - 8, 14);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 8px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(isHand ? '⚠️ LOWER HAND' : '⚠️ TILT CAM UP', W / 2, 11);
+    } else if (az?.state === 'recentering') {
+      ctx.fillStyle = isHand ? 'rgba(255, 215, 0, 0.90)' : 'rgba(0, 229, 255, 0.90)';
+      ctx.fillRect(4, 4, W - 8, 14);
+      ctx.fillStyle = '#080d1a';
+      ctx.font = 'bold 8px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('📐 POSITION RE-CENTERED', W / 2, 11);
     }
 
     ctx.restore();

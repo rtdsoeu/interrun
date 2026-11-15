@@ -24,6 +24,7 @@ import { WakeLockManager } from './WakeLockManager.js';
 import { ViewportManager } from './ViewportManager.js';
 import { StageTransitionCoordinator } from './StageTransitionCoordinator.js';
 import { DebugShortcuts } from './DebugShortcuts.js';
+import { AdaptiveDifficultyManager } from './AdaptiveDifficultyManager.js';
 
 export const GameState = {
   MENU: 'menu',
@@ -86,6 +87,21 @@ export class Engine {
 
     // 6. HUD, UI and HCI Analytics
     this.telemetry = new TelemetryManager();
+    this.adaptiveDifficulty = new AdaptiveDifficultyManager();
+    this.telemetry.onReactionRecorded = ({ stage, ttcMs, actionType, currentSpeed, distAhead }) => {
+      const res = this.adaptiveDifficulty.recordReaction(ttcMs, stage, currentSpeed || this.scoreSystem?.speed, actionType, distAhead);
+      if (res?.isNearMiss) {
+        this.soundFx?.playNearMiss?.();
+        this.cameraRig?.addTrauma?.(0.12);
+        this.scoreSystem?.addNearMiss?.();
+        this.telemetry?.recordNearMiss?.();
+        this.hud?.showToast?.(`🔥 NEAR-MISS! +150 (${res.distanceMeters}m)`, '#00e5ff');
+      }
+    };
+    this.telemetry.onCollisionRecorded = ({ stage }) => {
+      this.adaptiveDifficulty.recordCollision(stage);
+    };
+
     this.gestureBenchmark = new GestureBenchmark();
     this.surveyManager = new SurveyManager();
     this.hud = new Hud(this.uiRoot, this.skinManager, this.soundFx, this.visionManager);
@@ -106,7 +122,14 @@ export class Engine {
       obstacleManager: this.obstacleManager,
       soundFx: this.soundFx,
       hud: this.hud,
-      onApplyStageSwitch: (stage) => this._applyStageSwitch(stage)
+      onApplyStageSwitch: (stage) => this._applyStageSwitch(stage),
+      checkStageReady: (stage) => this.visionManager.hasValidDetection(stage),
+      onCalibrateAtEnd: (stage) => {
+        // Only zone control stages (Stage 2: FaceZone, Stage 3: HandZone) perform zone calibration
+        if (stage === 2 || stage === 3) {
+          this.visionManager.recalibrate();
+        }
+      }
     });
 
     // 8. Debug hotkeys and keyboard shortcuts
@@ -199,26 +222,54 @@ export class Engine {
     this.controlManager = new ControlManager();
 
     // Stage 0: Keyboard (WASD / Arrows)
-    this.controlManager.register(0, new KeyboardControl());
+    const kb = new KeyboardControl();
+    kb.onKeyPress = () => this.telemetry?.recordButtonPress();
+    this.controlManager.register(0, kb);
 
     // Stage 1: Pointer swipes (mouse & touch)
-    this.controlManager.register(1, new PointerControl());
+    const pointer = new PointerControl();
+    pointer.onPointerAction = () => this.telemetry?.recordButtonPress();
+    this.controlManager.register(1, pointer);
 
     // Stage 2: Face Zone CV — 3×3 grid (face nose landmark)
-    this.controlManager.register(2, new FaceZoneControl(this.visionManager));
+    const faceZone = new FaceZoneControl(this.visionManager);
+    faceZone.onZoneAction = ({ axis }) => {
+      if (axis === 'lr') {
+        this.telemetry?.recordHeadTilt('lr');
+      } else if (axis === 'ud') {
+        this.telemetry?.recordHeadTilt('ud');
+      }
+    };
+    this.controlManager.register(2, faceZone);
 
     // Stage 3: HandZone — 3×3 grid (hand palm centroid)
-    this.controlManager.register(3, new HandZoneControl(this.visionManager));
+    const handZone = new HandZoneControl(this.visionManager);
+    handZone.onZoneAction = () => {
+      this.telemetry?.recordHandGesture();
+    };
+    this.controlManager.register(3, handZone);
 
     // Stage 4: FingerGesture — finger gestures (1/2/3 fingers, palm, fist)
-    this.controlManager.register(4, new FingerGestureControl(this.visionManager));
+    const finger = new FingerGestureControl(this.visionManager);
+    finger.onGesture = () => {
+      this.telemetry?.recordHandGesture();
+    };
+    this.controlManager.register(4, finger);
 
     // Stage 5: HandSwipe — contactless air swipes (left, right, up, down)
-    this.controlManager.register(5, new HandSwipeControl(this.visionManager));
+    const handSwipe = new HandSwipeControl(this.visionManager);
+    handSwipe.onSwipe = () => {
+      this.telemetry?.recordHandGesture();
+    };
+    handSwipe.onFallbackPress = () => {
+      this.telemetry?.recordButtonPress();
+    };
+    this.controlManager.register(5, handSwipe);
 
     // On touch devices Stage 0 is replaced by virtual D-pad
     if (this._isTouchDevice()) {
       this._touchButtons = new TouchButtonControl();
+      this._touchButtons.onButtonPress = () => this.telemetry?.recordButtonPress();
       this.controlManager.register(0, this._touchButtons);
     }
 
@@ -250,13 +301,13 @@ export class Engine {
     this.telemetry?.recordStageTransition(stage, this.scoreSystem.distance);
     const isCvStage = stage >= 2;
     this.hud.showCvFps(isCvStage);
+    this.hud.announceStage(stage, this.scoreSystem.lockedStage !== null, this.scoreSystem.cycle);
 
     if (isCvStage && this.visionManager.hasCameraError) {
-      this.hud.showWebcamPip(false);
+      this.hud.showWebcamPip(false, stage);
       // Seamless fallback to Stage 1 PointerControl (touch swipes / mouse)
       this.controlManager.setStage(1);
       this.hud.setWebcamStatus(i18n.t('hud.cam.offline_fallback'), '#ff6b35');
-      this.hud.announceStage(stage, this.scoreSystem.lockedStage !== null, this.scoreSystem.cycle);
       this.hud.showCameraErrorModal(this.visionManager.lastError);
       return;
     }
@@ -267,10 +318,17 @@ export class Engine {
         this.visionManager.initWebcam(this.hud.elWebcamCanvas).catch(() => {});
       }
       if (this.visionManager.settings?.pipMode !== 'off') {
-        this.hud.showWebcamPip(true);
+        this.hud.showWebcamPip(true, stage);
       }
 
-      const stageMode = stage === 2 ? 'zone' : 'handzone';
+      const stageMode = stage === 2 ? 'zone'
+                      : stage === 3 ? 'handzone'
+                      : stage === 4 ? 'fingergesture'
+                      : stage === 5 ? 'handswipe'
+                      : null;
+      if (stageMode) {
+        this.visionManager.setMode(stageMode);
+      }
       if (this.visionManager.isModelReadyForMode(stageMode)) {
         this.hud.setWebcamStatus(i18n.t('hud.cam.active'));
       } else {
@@ -278,11 +336,11 @@ export class Engine {
         this.hud.setWebcamStatus(`${i18n.t('hud.cam.loading_models')} (${pct}%)`, '#ffd700');
       }
     } else {
-      this.hud.showWebcamPip(false);
+      this.hud.showWebcamPip(false, stage);
+      this.visionManager.setMode(null);
     }
 
     this.controlManager.setStage(stage);
-    this.hud.announceStage(stage, this.scoreSystem.lockedStage !== null, this.scoreSystem.cycle);
   }
 
   /** Detect touch device */
@@ -298,24 +356,25 @@ export class Engine {
       }
     };
 
-    this.hud.onStartGame = () => {
+    this.hud.onStartGame = (stage = 0, isLocked = false, isGod = false, speedMultiplier = 1.0, isDda = true) => {
       warmUpCameraOnGesture();
-      this.startGame(0, false, false);
+      this.startGame(stage, isLocked, isGod, speedMultiplier, isDda);
     };
 
-    this.hud.onRestartGame = () => {
+    this.hud.onRestartGame = (speedMultiplier = 1.0) => {
       warmUpCameraOnGesture();
-      this.startGame(0, false, false);
+      this.startGame(0, false, false, speedMultiplier);
     };
 
-    this.hud.onStartDebug = (stage, isLocked, isGod, speedMultiplier) => {
+    this.hud.onStartDebug = (stage, isLocked, isGod, speedMultiplier, isDda = true) => {
       warmUpCameraOnGesture();
-      this.startGame(stage, isLocked, isGod, speedMultiplier);
+      this.startGame(stage, isLocked, isGod, speedMultiplier, isDda);
     };
 
-    this.hud.onApplyLiveDebug = (stage, isLocked, isGod, speedMultiplier) => {
+    this.hud.onApplyLiveDebug = (stage, isLocked, isGod, speedMultiplier, isDda = true) => {
       this.godMode = isGod;
-      this.setDebugStage(stage, isLocked, speedMultiplier);
+      if (this.adaptiveDifficulty) this.adaptiveDifficulty.setEnabled(isDda);
+      this.setDebugStage(stage, isLocked, speedMultiplier, isDda);
     };
 
     this.hud.onRetryCamera = async () => {
@@ -337,6 +396,10 @@ export class Engine {
     };
 
     this.hud.onToggleCamera = async () => {
+      // Disallow camera preview on non-CV stages (keyboard & mouse)
+      if (this.scoreSystem.stage < 2) {
+        return;
+      }
       if (!this.visionManager.isReady) {
         const ok = await this.visionManager.initWebcam(this.hud.elWebcamCanvas);
         if (!ok && this.visionManager.lastError) {
@@ -346,13 +409,7 @@ export class Engine {
       const pip = this.hud.elWebcamPip;
       const isHidden = !pip || pip.classList.contains('hidden');
       this.hud.showWebcamPip(isHidden);
-      if (isHidden && !this.visionManager.activeMode && this.scoreSystem.stage < 2) {
-        this.visionManager.setMode('zone');
-      } else if (!isHidden && this.scoreSystem.stage < 2 && this.visionManager.activeMode === 'zone') {
-        this.visionManager.setMode(null);
-      }
-      const isCvStage = this.scoreSystem.stage >= 2;
-      this.hud.showCvFps(isCvStage);
+      this.hud.showCvFps(true);
     };
 
     this.hud.onGoToMenu = () => this.goToMenu();
@@ -377,6 +434,12 @@ export class Engine {
         this.setRenderScale(settings.renderScale);
       }
     };
+
+    this.hud.onApplySettings = (settings) => {
+      if (settings?.speedMultiplier !== undefined) {
+        this.scoreSystem.setSpeedMultiplier(settings.speedMultiplier);
+      }
+    };
   }
 
   goToMenu() {
@@ -389,16 +452,19 @@ export class Engine {
     this.hud.showMenu();
   }
 
-  setDebugStage(stageNum, lock = true, speedMultiplier = null) {
+  setDebugStage(stageNum, lock = true, speedMultiplier = null, isDda = null) {
     if (stageNum < 0 || stageNum > 5) return;
 
     if (this.state === GameState.MENU || this.state === GameState.DEAD) {
       this.hud.closeAllModals();
-      this.startGame(stageNum, lock, this.godMode, speedMultiplier || this.scoreSystem.speedMultiplier);
+      this.startGame(stageNum, lock, this.godMode, speedMultiplier || this.scoreSystem.speedMultiplier, isDda ?? true);
       return;
     }
 
     this.transitionCoordinator.cancelTransition();
+    if (isDda !== null && this.adaptiveDifficulty) {
+      this.adaptiveDifficulty.setEnabled(isDda);
+    }
 
     // Fast-forward distance to stage threshold so subsequent update() calls do not downgrade stage
     const threshold = this.scoreSystem.STAGE_THRESHOLDS[stageNum] || 0;
@@ -463,8 +529,12 @@ export class Engine {
     this.viewportManager.applyRenderScale(scale);
   }
 
-  startGame(stage = 0, isLocked = false, isGodMode = false, speedMultiplier = 1.0) {
+  startGame(stage = 0, isLocked = false, isGodMode = false, speedMultiplier = 1.0, isDda = true) {
     this.telemetry?.startSession(stage, isLocked, speedMultiplier);
+    this.adaptiveDifficulty?.reset();
+    if (this.adaptiveDifficulty) {
+      this.adaptiveDifficulty.setEnabled(isDda);
+    }
     this.coins = 0;
     this.lives = 3;
     this.godMode = isGodMode;
@@ -494,7 +564,21 @@ export class Engine {
     this.wakeLock?.release();
     this.transitionCoordinator.cancelTransition();
     this.scoreSystem.stop();
-    this.telemetry?.endSession(this.scoreSystem.distance, this.scoreSystem.bestScore, this.coins);
+    const ddaMetrics = this.adaptiveDifficulty?.getMetrics();
+    const kinSummary = this.telemetry?.getKinematicSummary();
+    const actionCounters = this.telemetry?.getActionCounters() || {
+      buttonPresses: 0,
+      headTiltsLeftRight: 0,
+      headTiltsUpDown: 0,
+      totalHeadTilts: 0,
+      handGestures: 0,
+      nearMisses: this.scoreSystem.nearMisses || 0,
+      totalActions: 0
+    };
+    if (this.scoreSystem?.nearMisses && !actionCounters.nearMisses) {
+      actionCounters.nearMisses = this.scoreSystem.nearMisses;
+    }
+    this.telemetry?.endSession(this.scoreSystem.distance, this.scoreSystem.bestScore, this.coins, ddaMetrics);
     this.controlManager.setStage(-1);
     this.soundFx?.setBgmMode('dead');
 
@@ -502,7 +586,11 @@ export class Engine {
     this.cameraRig.addTrauma(0.9);
 
     setTimeout(() => {
-      this.hud.showGameOver(this.scoreSystem.distance, this.scoreSystem.bestScore, this.coins);
+      this.hud.showGameOver(this.scoreSystem.distance, this.scoreSystem.bestScore, this.coins, {
+        actions: actionCounters,
+        dda: ddaMetrics,
+        kinematics: kinSummary
+      });
     }, 900);
   }
 
@@ -559,37 +647,56 @@ export class Engine {
       // Transition countdown update
       this.transitionCoordinator.update(dt);
 
+      // Adaptive DDA loop: update flow metrics and modulate speed & spacing
+      this.adaptiveDifficulty?.update(dt, this.scoreSystem.stage);
+      this.scoreSystem.setAdaptiveMultiplier(this.adaptiveDifficulty?.speedMultiplier ?? 1.0);
+      this.obstacleManager.setAdaptiveParameters(
+        this.adaptiveDifficulty?.spacingMultiplier ?? 1.0,
+        this.adaptiveDifficulty?.doubleFactor ?? 1.0
+      );
+
       this.scoreSystem.update(dt);
       const speed = this.scoreSystem.speed;
       const speedNorm = this.scoreSystem.speedNorm;
       const difficulty = this.scoreSystem.difficulty;
 
       this.visionManager.update();
+      if (this.visionManager.currentState?.kinematics) {
+        this.telemetry.recordKinematics(this.visionManager.currentState.kinematics);
+      }
       this.controlManager.update(dt);
       const input = this.controlManager.consume();
+
+      // Execute runner gameplay actions immediately (zero latency, immune to telemetry/audio exceptions)
+      this.runner.handleInput(input);
+
+      // Async/non-blocking telemetry & DDA reaction recording
       if (input.laneDelta !== 0 || input.targetLane !== undefined || input.jump || input.slide || input.isDucking) {
-        // Find nearest oncoming obstacle in front of runner to calculate physical Time-To-Collision (TTC)
-        let nearestObsZ = null;
-        let minAhead = Infinity;
-        if (this.obstacleManager?.activeObstacles) {
-          for (let i = 0; i < this.obstacleManager.activeObstacles.length; i++) {
-            const obs = this.obstacleManager.activeObstacles[i];
-            if (!obs?.mesh) continue;
-            const distAhead = this.runner.pos.z - obs.mesh.position.z;
-            if (distAhead > 0 && distAhead < minAhead) {
-              minAhead = distAhead;
-              nearestObsZ = obs.mesh.position.z;
+        try {
+          // Find nearest oncoming obstacle in front of runner to calculate physical Time-To-Collision (TTC)
+          let nearestObsZ = null;
+          let minAhead = Infinity;
+          if (this.obstacleManager?.activeObstacles) {
+            for (let i = 0; i < this.obstacleManager.activeObstacles.length; i++) {
+              const obs = this.obstacleManager.activeObstacles[i];
+              if (!obs?.mesh) continue;
+              const distAhead = this.runner.pos.z - obs.mesh.position.z;
+              if (distAhead > 0 && distAhead < minAhead) {
+                minAhead = distAhead;
+                nearestObsZ = obs.mesh.position.z;
+              }
             }
           }
+          this.telemetry?.recordPlayerAction(
+            input.jump ? 'jump' : (input.slide || input.isDucking ? 'slide' : 'lane'),
+            speed,
+            this.runner.pos.z,
+            nearestObsZ
+          );
+        } catch (telemetryErr) {
+          console.warn('[Engine] Telemetry recordPlayerAction failed:', telemetryErr);
         }
-        this.telemetry?.recordPlayerAction(
-          input.jump ? 'jump' : (input.slide || input.isDucking ? 'slide' : 'lane'),
-          speed,
-          this.runner.pos.z,
-          nearestObsZ
-        );
       }
-      this.runner.handleInput(input);
 
       this.runner.update(dt, speed);
 

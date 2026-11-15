@@ -10,22 +10,42 @@
  * Operates via pointerdown on DOM elements and uses semantic CSS classes.
  */
 import { BaseControl } from './BaseControl.js';
+import { KeyboardControl } from './KeyboardControl.js';
 
 export class TouchButtonControl extends BaseControl {
   constructor() {
     super();
     this._overlay = null;
+    this._keyboard = new KeyboardControl();
+    this.onButtonPress = null; // callback(idOrCode)
+    this._keyboard.onKeyPress = (code) => this.onButtonPress?.(code);
   }
 
   _onEnable() {
     this._buildOverlay();
+    this._keyboard.enable();
   }
 
   _onDisable() {
+    this._keyboard.disable();
     if (this._overlay) {
       this._overlay.remove();
       this._overlay = null;
     }
+  }
+
+  update(dt) {
+    this._keyboard.update(dt);
+  }
+
+  consume() {
+    const touch = super.consume();
+    const kb = this._keyboard.consume();
+    return {
+      laneDelta: touch.laneDelta !== 0 ? touch.laneDelta : (kb.laneDelta || 0),
+      jump: Boolean(touch.jump || kb.jump),
+      slide: Boolean(touch.slide || kb.slide)
+    };
   }
 
   _buildOverlay() {
@@ -64,6 +84,7 @@ export class TouchButtonControl extends BaseControl {
       e.preventDefault();
       if (!this._enabled) return;
       action();
+      this.onButtonPress?.(id);
       el.classList.add('active');
     });
 

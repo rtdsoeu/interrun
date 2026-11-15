@@ -8,62 +8,72 @@ export class KeyboardControl extends BaseControl {
   constructor() {
     super();
     this._held = new Set();
-    this._laneArmed  = true; // flag: lane action can trigger again
-    this._jumpArmed  = true;
-    this._slideArmed = true;
+    this.onKeyPress = null; // callback(code)
 
     this._onKD = (e) => this._keyDown(e);
     this._onKU = (e) => this._keyUp(e);
+    this._onBlur = () => { this._held.clear(); };
+    this._onVis = () => { if (typeof document !== 'undefined' && document.hidden) this._held.clear(); };
   }
 
   _onEnable() {
     window.addEventListener('keydown', this._onKD);
     window.addEventListener('keyup',   this._onKU);
+    window.addEventListener('blur',    this._onBlur);
+    window.addEventListener('focus',   this._onBlur);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this._onVis);
+    }
   }
 
   _onDisable() {
     window.removeEventListener('keydown', this._onKD);
     window.removeEventListener('keyup',   this._onKU);
+    window.removeEventListener('blur',    this._onBlur);
+    window.removeEventListener('focus',   this._onBlur);
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._onVis);
+    }
     this._held.clear();
-    this._laneArmed = this._jumpArmed = this._slideArmed = true;
   }
 
   _keyDown(e) {
-    if (this._held.has(e.code)) return; // ignore autorepeat
+    if (this._held.has(e.code)) return; // ignore OS autorepeat for this key
     this._held.add(e.code);
 
+    let matched = false;
     switch (e.code) {
       case 'ArrowLeft':
       case 'KeyA':
-        if (this._laneArmed) { this._push({ laneDelta: -1 }); this._laneArmed = false; }
+        this._push({ laneDelta: -1 });
+        matched = true;
         break;
       case 'ArrowRight':
       case 'KeyD':
-        if (this._laneArmed) { this._push({ laneDelta: 1 }); this._laneArmed = false; }
+        this._push({ laneDelta: 1 });
+        matched = true;
         break;
       case 'ArrowUp':
       case 'KeyW':
       case 'Space':
-        if (this._jumpArmed) { this._push({ jump: true }); this._jumpArmed = false; }
+        this._push({ jump: true });
         e.preventDefault();
+        matched = true;
         break;
       case 'ArrowDown':
       case 'KeyS':
-        if (this._slideArmed) { this._push({ slide: true }); this._slideArmed = false; }
+        this._push({ slide: true });
         e.preventDefault();
+        matched = true;
         break;
+    }
+
+    if (matched && this._enabled && this.onKeyPress) {
+      this.onKeyPress(e.code);
     }
   }
 
   _keyUp(e) {
     this._held.delete(e.code);
-
-    // Re-arm after releasing all lane movement keys
-    const noLane = !this._held.has('ArrowLeft') && !this._held.has('KeyA') &&
-                   !this._held.has('ArrowRight') && !this._held.has('KeyD');
-    if (noLane) this._laneArmed = true;
-
-    if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') this._jumpArmed  = true;
-    if (e.code === 'ArrowDown' || e.code === 'KeyS')                      this._slideArmed = true;
   }
 }

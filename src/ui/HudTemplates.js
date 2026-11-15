@@ -31,7 +31,7 @@ export function getHUDHtml(t, i18n, state = {}) {
 
           <!-- Action buttons -->
           <div id="hud-actions-group" data-no-swipe="true">
-            <button id="btn-toggle-cam" class="hud-panel hud-btn" data-no-swipe="true" title="${t('hud.camera')}">
+            <button id="btn-toggle-cam" class="hud-panel hud-btn hidden" data-no-swipe="true" title="${t('hud.camera')}">
               <span class="hud-btn-icon">📹</span>
               <span class="hud-btn-text" data-i18n="hud.camera">${t('hud.camera')}</span>
             </button>
@@ -167,6 +167,17 @@ export function getHUDHtml(t, i18n, state = {}) {
         <div class="stage-chip" data-stage="5" style="border-color:rgba(255,215,0,0.5); color:#ffd700; cursor:pointer;" title="Launch Stage 5">5: ${t('stage.5.name')} 👋</div>
       </div>
 
+      <!-- Initial Speed Multiplier Slider -->
+      <div id="menu-speed-wrap" style="width:100%; max-width:340px; margin-top:14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:10px 14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <span style="font-size:11px; font-weight:700; color:rgba(255,255,255,0.85); display:flex; align-items:center; gap:5px;">
+            <span>⚡</span><span data-i18n="menu.speed_mult">${t('menu.speed_mult')}</span>
+          </span>
+          <span id="menu-speed-val" style="font-size:12px; font-weight:800; color:#00ff88; font-family:monospace;">${(settings.speedMultiplier ?? 1.0).toFixed(2)}x</span>
+        </div>
+        <input type="range" id="menu-slider-speed" class="cyber-slider" min="0.5" max="2.0" step="0.05" value="${settings.speedMultiplier ?? 1.0}" style="width:100%;">
+      </div>
+
       <!-- AI Models Preload Status -->
       <div id="menu-ai-status" style="font-size:11px; font-weight:700; letter-spacing:0.8px; color:rgba(255,255,255,0.75); display:flex; align-items:center; justify-content:center; gap:6px; margin-top:14px;">
         <span id="menu-ai-indicator" style="width:8px; height:8px; border-radius:50%; background:${state.isAiReady ? '#00ff88' : '#ffd700'}; display:inline-block; box-shadow:0 0 8px ${state.isAiReady ? '#00ff88' : '#ffd700'};"></span>
@@ -184,6 +195,79 @@ export function getHUDHtml(t, i18n, state = {}) {
         &nbsp;•&nbsp;
         <span data-i18n="death.coins">${t('death.coins')}</span> <span id="death-coins">0</span>
       </div>
+
+      <!-- Player Physical Actions Summary Card -->
+      <div id="death-ai-card" class="death-ai-card hidden">
+        <div class="death-ai-header">
+          <div class="death-ai-title">
+            <span style="font-size:14px;">📊</span>
+            <span data-i18n="death.actions.title">${t('death.actions.title')}</span>
+          </div>
+          <div id="death-ai-persona" class="death-ai-persona">⚡ 0 ${t('death.actions.total_badge').replace('{n}', '0')}</div>
+        </div>
+
+        <div class="death-actions-grid">
+          <!-- 1. Distance Covered -->
+          <div class="death-action-item">
+            <div class="death-action-label">🏃 <span data-i18n="death.actions.dist">${t('death.actions.dist')}</span></div>
+            <div class="death-action-val-row">
+              <span id="death-act-dist" class="death-action-val" style="color:#00e5ff;">0 м</span>
+              <span class="death-action-desc" data-i18n="death.actions.dist_desc">${t('death.actions.dist_desc')}</span>
+            </div>
+          </div>
+
+          <!-- 2. Last-Moment Dodges (Near-Miss) -->
+          <div class="death-action-item">
+            <div class="death-action-label">🔥 <span data-i18n="death.actions.nearmiss">${t('death.actions.nearmiss')}</span></div>
+            <div class="death-action-val-row">
+              <span id="death-act-nearmiss" class="death-action-val" style="color:#ff3d5e;">0</span>
+              <span class="death-action-desc" data-i18n="death.actions.nearmiss_desc">${t('death.actions.nearmiss_desc')}</span>
+            </div>
+          </div>
+
+          <!-- 3. Button / Key Presses -->
+          <div class="death-action-item">
+            <div class="death-action-label">⌨️ <span data-i18n="death.actions.buttons">${t('death.actions.buttons')}</span></div>
+            <div class="death-action-val-row">
+              <span id="death-act-buttons" class="death-action-val" style="color:#00ff88;">0</span>
+              <span class="death-action-desc" data-i18n="death.actions.buttons_desc">${t('death.actions.buttons_desc')}</span>
+            </div>
+          </div>
+
+          <!-- 4. Hand Gestures -->
+          <div class="death-action-item">
+            <div class="death-action-label">✋ <span data-i18n="death.actions.hands">${t('death.actions.hands')}</span></div>
+            <div class="death-action-val-row">
+              <span id="death-act-hands" class="death-action-val" style="color:#ffd700;">0</span>
+              <span class="death-action-desc" data-i18n="death.actions.hands_desc">${t('death.actions.hands_desc')}</span>
+            </div>
+          </div>
+
+          <!-- 5. Head Tilts (spanning full width with breakdown) -->
+          <div class="death-action-item death-action-item-full">
+            <div class="death-action-label">👤 <span data-i18n="death.actions.head">${t('death.actions.head')}</span></div>
+            <div class="death-action-val-row" style="justify-content:space-between; align-items:center;">
+              <span id="death-act-head-total" class="death-action-val" style="color:#a89cff;">0</span>
+              <div id="death-act-head-breakdown" class="death-head-breakdown">
+                <span class="head-tilt-chip">↔ <span id="death-act-head-lr">0</span> <span data-i18n="death.actions.lr">${t('death.actions.lr')}</span></span>
+                <span class="head-tilt-chip">↕ <span id="death-act-head-ud">0</span> <span data-i18n="death.actions.ud">${t('death.actions.ud')}</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hidden container for secondary telemetry backwards compatibility -->
+        <div id="death-ai-secondary" style="display:none;">
+          <span id="death-ai-flow-val"></span>
+          <span id="death-ai-flow-desc"></span>
+          <span id="death-ai-ttc-val"></span>
+          <span id="death-ai-ttc-badge"></span>
+          <span id="death-ai-assists-val"></span>
+          <span id="death-ai-kin-val"></span>
+          <span id="death-ai-kin-style"></span>
+        </div>
+      </div>
+
       <div class="death-buttons">
         <button id="btn-restart" class="btn btn-primary" data-i18n="death.restart">${t('death.restart')}</button>
         <button id="btn-debug-restart" class="btn btn-ghost" style="border-color:rgba(0,229,255,0.4); color:var(--accent);" data-i18n="death.debug">${t('death.debug')}</button>
@@ -315,6 +399,16 @@ export function getHUDHtml(t, i18n, state = {}) {
             </div>
             <input type="checkbox" id="debug-opt-god" checked style="width:20px; height:20px; accent-color:#ffd700; cursor:pointer;">
           </label>
+
+          <div style="height:1px; background:rgba(255,255,255,0.06);"></div>
+
+          <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none;">
+            <div>
+              <div style="font-size:14px; font-weight:700; color:#00ff88;" data-i18n="debug.dda.label">${t('debug.dda.label')}</div>
+              <div style="font-size:11px; color:rgba(255,255,255,0.5);" data-i18n="debug.dda.sub">${t('debug.dda.sub')}</div>
+            </div>
+            <input type="checkbox" id="debug-opt-dda" checked style="width:20px; height:20px; accent-color:#00ff88; cursor:pointer;">
+          </label>
         </div>
 
         <!-- Hotkeys Hint -->
@@ -416,6 +510,18 @@ export function getHUDHtml(t, i18n, state = {}) {
             <button class="setting-opt-btn btn-ghost" data-group="renderScale" data-val="0.5" style="padding:10px 6px; font-size:11px; border-radius:10px; cursor:pointer; text-align:center;">
               <div style="font-weight:700;" data-i18n="settings.scale.50">${t('settings.scale.50')}</div>
             </button>
+          </div>
+        </div>
+
+        <!-- Initial Speed Multiplier -->
+        <div>
+          <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#00ff88; margin-bottom:8px;" data-i18n="settings.speed_label">${t('settings.speed_label')}</div>
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:10px 14px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <span style="font-size:11px; font-weight:600; color:rgba(255,255,255,0.85);" data-i18n="settings.speed_desc">${t('settings.speed_desc')}</span>
+              <span id="settings-speed-val" style="font-size:12px; font-weight:700; color:#00ff88; font-family:monospace;">${(settings.speedMultiplier ?? 1.0).toFixed(2)}x</span>
+            </div>
+            <input type="range" id="slider-speed-mult" class="cyber-slider" min="0.5" max="2.0" step="0.05" value="${settings.speedMultiplier ?? 1.0}">
           </div>
         </div>
 
@@ -544,6 +650,24 @@ export function getHUDHtml(t, i18n, state = {}) {
             </div>
           </div>
 
+          <!-- Play Style Persona Banner based on regular dodge distance & kinematics -->
+          <div id="telem-playstyle-banner" style="background:rgba(0, 229, 255, 0.05); border:1px solid rgba(0, 229, 255, 0.20); border-radius:10px; padding:10px 14px; display:flex; flex-direction:column; gap:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:rgba(255,255,255,0.5);" data-i18n="telemetry.style.title">${t('telemetry.style.title')}</div>
+                <div id="telem-style-label" style="font-size:13px; font-weight:800; color:#00e5ff; margin-top:2px;">--</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:10px; color:rgba(255,255,255,0.5);" data-i18n="telemetry.style.reg_title">${t('telemetry.style.reg_title')}</div>
+                <div id="telem-style-reg" style="font-size:12px; font-weight:700; color:#00ff88; margin-top:2px;">--</div>
+              </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.08); padding-top:6px; font-size:11px;">
+              <div id="telem-style-maneuver" style="color:rgba(255,255,255,0.8);">--</div>
+              <div id="telem-style-kinematics" style="color:#ffd700;">--</div>
+            </div>
+          </div>
+
           <!-- Per-stage Table -->
           <div style="overflow-x:auto;">
             <table style="width:100%; border-collapse:collapse; font-size:11px; text-align:left;">
@@ -652,11 +776,11 @@ export function getHUDHtml(t, i18n, state = {}) {
             <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px;">
               <div style="font-size:11px; margin-bottom:6px;" data-i18n="telemetry.survey.q_fatigue">${t('telemetry.survey.q_fatigue')}</div>
               <div style="display:flex; justify-content:space-between; font-size:11px;">
-                <label><input type="radio" name="survey-fatigue" value="1"> 1 (Ні)</label>
+                <label><input type="radio" name="survey-fatigue" value="1"> 1 (${t('telemetry.survey.no')})</label>
                 <label><input type="radio" name="survey-fatigue" value="2"> 2</label>
                 <label><input type="radio" name="survey-fatigue" value="3" checked> 3</label>
                 <label><input type="radio" name="survey-fatigue" value="4"> 4</label>
-                <label><input type="radio" name="survey-fatigue" value="5"> 5 (Так)</label>
+                <label><input type="radio" name="survey-fatigue" value="5"> 5 (${t('telemetry.survey.yes')})</label>
               </div>
             </div>
 

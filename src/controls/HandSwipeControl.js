@@ -25,6 +25,11 @@ export class HandSwipeControl extends BaseControl {
     this._vision  = visionManager;
     this._fallback = new FallbackInputLayer();
     this._lastProcessedSwipeId = 0;
+    this.onSwipe = null; // callback(swipeDir)
+    this.onFallbackPress = null; // callback(codeOrAction)
+
+    this._fallback._keyboard.onKeyPress = (code) => this.onFallbackPress?.(code);
+    this._fallback._pointer.onPointerAction = (act) => this.onFallbackPress?.(act);
   }
 
   // ── Delegation proxies ──────────────────────────────────────────────────
@@ -67,6 +72,7 @@ export class HandSwipeControl extends BaseControl {
     // Guard: consume each swipe ID exactly once (worker increments monotonically)
     if (hsSwipeId && hsSwipeId === this._lastProcessedSwipeId) return;
     this._lastProcessedSwipeId = hsSwipeId;
+    this.onSwipe?.(hsSwipe);
 
     switch (hsSwipe) {
       case 'left':  this._push({ laneDelta: -1 }); break;

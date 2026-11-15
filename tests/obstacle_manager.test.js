@@ -248,4 +248,42 @@ describe('ObstacleManager Lifecycle & Spawning', () => {
     // Now it should be dropping close to player
     expect(obs.dropping).toBe(true);
   });
+
+  it('keeps FALLING_HAZARD crate hidden far away and only reveals it shortly before dropping', () => {
+    const scene = new THREE.Scene();
+    const mgr = new ObstacleManager(scene, null, null);
+    mgr.reset();
+    mgr._spawnFallingHazard(0, -70);
+    const obs = mgr.activeObstacles.find(o => o.type === ObstacleType.FALLING_HAZARD);
+    expect(obs).toBeDefined();
+
+    // Far away at Z = -70, crate and ground decal must be invisible
+    expect(obs.crateGroup.visible).toBe(false);
+    expect(obs.decal.visible).toBe(false);
+
+    const hitbox = new THREE.Box3();
+
+    // Move to Z = -32 (speed 12: decal trigger is -16 - 18 = -34, appear trigger is -16 - 9 = -25)
+    while (obs.mesh.position.z < -30) {
+      mgr.update(0.016, 12, 0.5, hitbox, () => {}, () => {}, 0);
+    }
+    // Decal should now be visible on ground, but crate still hidden in sky
+    expect(obs.decal.visible).toBe(true);
+    expect(obs.crateGroup.visible).toBe(false);
+
+    // Move into appear window (Z = -22, between -25 and -16)
+    while (obs.mesh.position.z < -20) {
+      mgr.update(0.016, 12, 0.5, hitbox, () => {}, () => {}, 0);
+    }
+    // Crate is now revealed overhead for a short alert window
+    expect(obs.crateGroup.visible).toBe(true);
+    expect(obs.dropping).toBe(false);
+
+    // Move past drop trigger (Z = -14)
+    while (obs.mesh.position.z < -14) {
+      mgr.update(0.016, 12, 0.5, hitbox, () => {}, () => {}, 0);
+    }
+    expect(obs.dropping).toBe(true);
+    expect(obs.crateGroup.visible).toBe(true);
+  });
 });

@@ -33,6 +33,7 @@ export class ScoreSystem {
     this.distance    = 0;   // meters
     this.stage       = 0;
     this.lockedStage = null; // null = free progression, number = debug stage lock
+    this.nearMisses  = 0;
     const savedBest = typeof localStorage !== 'undefined' ? localStorage.getItem('interrun_best') : null;
     this.bestScore   = parseInt(savedBest || '0', 10);
     this._alive      = false;
@@ -45,6 +46,7 @@ export class ScoreSystem {
     this.CYCLE_SPEED_INCREMENT = CYCLE_SPEED_INCREMENT;
     this.TRANSITION_SPEED     = 10.5;
     this.speedMultiplier      = 1.0;
+    this.adaptiveSpeedMultiplier = 1.0;
     this.isTransitioning      = false;
     this.speed                = this.STAGE_BASE_SPEEDS[0];
 
@@ -68,20 +70,26 @@ export class ScoreSystem {
     this.speedMultiplier = Math.max(0.2, Math.min(3.0, multiplier));
     if (this._alive && this.speed) {
       const base = (this.STAGE_BASE_SPEEDS[this.stage] ?? 12.0) + this.cycle * this.CYCLE_SPEED_INCREMENT;
-      this.speed = base * this.speedMultiplier;
+      this.speed = base * this.speedMultiplier * this.adaptiveSpeedMultiplier;
     }
   }
 
+  setAdaptiveMultiplier(multiplier = 1.0) {
+    this.adaptiveSpeedMultiplier = Math.max(0.7, Math.min(1.4, multiplier));
+  }
+
   start(initialStage = 0, isLocked = false, speedMultiplier = 1.0) {
-    const validStage     = Math.max(0, Math.min(this.MAX_STAGE, initialStage));
-    this.distance        = this.STAGE_THRESHOLDS[validStage] || 0;
-    this.stage           = validStage;
-    this.speedMultiplier = speedMultiplier || 1.0;
-    const cycleBonus     = this.cycle * this.CYCLE_SPEED_INCREMENT;
-    this.speed           = ((this.STAGE_BASE_SPEEDS[validStage] || 12.0) + cycleBonus) * this.speedMultiplier;
-    this.isTransitioning = false;
-    this.lockedStage     = isLocked ? validStage : null;
-    this._alive          = true;
+    const validStage             = Math.max(0, Math.min(this.MAX_STAGE, initialStage));
+    this.distance                = this.STAGE_THRESHOLDS[validStage] || 0;
+    this.stage                   = validStage;
+    this.nearMisses              = 0;
+    this.speedMultiplier         = speedMultiplier || 1.0;
+    this.adaptiveSpeedMultiplier = 1.0;
+    const cycleBonus             = this.cycle * this.CYCLE_SPEED_INCREMENT;
+    this.speed                   = ((this.STAGE_BASE_SPEEDS[validStage] || 12.0) + cycleBonus) * this.speedMultiplier * this.adaptiveSpeedMultiplier;
+    this.isTransitioning         = false;
+    this.lockedStage             = isLocked ? validStage : null;
+    this._alive                  = true;
   }
 
   stop() {
@@ -122,11 +130,11 @@ export class ScoreSystem {
   update(dt) {
     if (!this._alive) return;
 
-    // Target speed logic: tailored per-stage base speed + loop speed increment, slowdown during transition
+    // Target speed logic: tailored per-stage base speed + loop speed increment, DDA adaptive multiplier, slowdown during transition
     const cycle = this.cycle;
     const cycleSpeedBonus = cycle * this.CYCLE_SPEED_INCREMENT;
     const baseSpeed = this.STAGE_BASE_SPEEDS[this.stage] ?? 12.0;
-    let targetSpeed = (baseSpeed + cycleSpeedBonus) * this.speedMultiplier;
+    let targetSpeed = (baseSpeed + cycleSpeedBonus) * this.speedMultiplier * this.adaptiveSpeedMultiplier;
 
     if (this.isTransitioning) {
       targetSpeed = (this.TRANSITION_SPEED + cycle * this.CYCLE_SPEED_INCREMENT) * this.speedMultiplier;
@@ -175,7 +183,12 @@ export class ScoreSystem {
     return Math.max(0, Math.min(1, (this.speed - this.BASE_SPEED) / (this.MAX_SPEED - this.BASE_SPEED)));
   }
 
-  get scoreInt() { return Math.floor(this.distance); }
+  addNearMiss() {
+    this.nearMisses++;
+    return { count: this.nearMisses, bonus: 15 };
+  }
+
+  get scoreInt() { return Math.floor(this.distance) + (this.nearMisses * 15); }
 
   /** Difficulty 0..1 based on distance */
   get difficulty() {

@@ -53,7 +53,10 @@ export class ObstacleManager {
     this.scene.add(this.obstacleGroup);
     this.scene.add(this.coinGroup);
 
+    this.baseSpawnInterval = 30;
     this.spawnInterval = 30; // distance between rows
+    this.adaptiveSpacingMultiplier = 1.0;
+    this.adaptiveDoubleFactor = 1.0;
     this.furthestZ = -180;
     this.isTransitioning = false;
 
@@ -89,6 +92,17 @@ export class ObstacleManager {
     }
   }
 
+  /**
+   * Sets dynamic difficulty parameters from AdaptiveDifficultyManager.
+   * @param {number} spacingMultiplier Multiplier for distance between obstacle rows (e.g. 0.85 .. 1.35)
+   * @param {number} doubleFactor Factor for two-lane obstacle spawn probability (e.g. 0.0 .. 1.4)
+   */
+  setAdaptiveParameters(spacingMultiplier = 1.0, doubleFactor = 1.0) {
+    this.adaptiveSpacingMultiplier = Math.max(0.7, Math.min(1.5, spacingMultiplier));
+    this.adaptiveDoubleFactor = Math.max(0.0, Math.min(2.0, doubleFactor));
+    this.spawnInterval = this.baseSpawnInterval * this.adaptiveSpacingMultiplier;
+  }
+
   _initGeometries() {
     // Reusable shared geometries to eliminate GPU buffer churn and memory allocations
     this._geoJumpBar = new THREE.BoxGeometry(2.0, 0.26, 0.2);
@@ -116,6 +130,11 @@ export class ObstacleManager {
 
   _recycleObstacle(obs) {
     this.obstacleGroup.remove(obs.mesh);
+    if (obs.type === ObstacleType.FALLING_HAZARD) {
+      if (obs.crateGroup) obs.crateGroup.visible = false;
+      if (obs.decal) obs.decal.visible = false;
+      if (obs.ring) obs.ring.visible = false;
+    }
     if (this._pools[obs.type]) {
       this._pools[obs.type].push(obs);
     }
@@ -208,6 +227,9 @@ export class ObstacleManager {
   reset() {
     this.totalDistance = 0;
     this._lastFallingHazardDist = -999;
+    this.adaptiveSpacingMultiplier = 1.0;
+    this.adaptiveDoubleFactor = 1.0;
+    this.spawnInterval = this.baseSpawnInterval;
     for (let i = 0; i < this.activeObstacles.length; i++) {
       this._recycleObstacle(this.activeObstacles[i]);
     }
@@ -254,7 +276,9 @@ export class ObstacleManager {
       return;
     }
 
-    const count = (difficulty > 0.35 && Math.random() > 0.4) ? 2 : 1;
+    // Adaptive double obstacle probability based on player flow state
+    const doubleProb = Math.min(0.75, 0.6 * this.adaptiveDoubleFactor);
+    const count = (difficulty > 0.35 && Math.random() < doubleProb) ? 2 : 1;
 
     for (let i = 0; i < count; i++) {
       const lane = lanes[i];
@@ -292,8 +316,15 @@ export class ObstacleManager {
       obs.minY = 9.6;
       obs.maxY = 11.4;
       obs.crateGroup.position.set(0, 10.5, 0);
-      if (obs.decal) obs.decal.material.opacity = 0.65;
-      if (obs.ring) obs.ring.material.opacity = 0.75;
+      obs.crateGroup.visible = false;
+      if (obs.decal) {
+        obs.decal.material.opacity = 0.65;
+        obs.decal.visible = false;
+      }
+      if (obs.ring) {
+        obs.ring.material.opacity = 0.75;
+        obs.ring.visible = false;
+      }
       obs.mesh.position.set(x, 0, z);
       obs.box.min.set(x - obs.halfW, 9.6, z - obs.halfD);
       obs.box.max.set(x + obs.halfW, 11.4, z + obs.halfD);
@@ -308,13 +339,16 @@ export class ObstacleManager {
     // 1. Ground warning decal and pulsating laser ring (cloned for independent opacity)
     const decal = new THREE.Mesh(this._geoWarningDecal, this._matWarningDecal.clone());
     decal.position.set(0, 0.02, 0);
+    decal.visible = false;
     const ring = new THREE.Mesh(this._geoWarningRing, this._matWarningRing.clone());
     ring.position.set(0, 0.03, 0);
+    ring.visible = false;
     group.add(decal, ring);
 
     // 2. Heavy cyber cargo crate subgroup
     const crateGroup = new THREE.Group();
     crateGroup.position.set(0, 10.5, 0);
+    crateGroup.visible = false;
 
     const crate = new THREE.Mesh(this._geoFallingCrate, this._matFallingCrate);
     crate.castShadow = true;
@@ -554,12 +588,28 @@ export class ObstacleManager {
       // Dynamic physics for FALLING_HAZARD
       if (obs.type === ObstacleType.FALLING_HAZARD) {
         if (!obs.hasLanded) {
-          // Trigger drop closer to the player: starts dropping at -Math.max(16, speed * 1.25)
+          // Drop trigger distance dynamically scaled with forward speed
           const dropTriggerZ = -Math.max(16, speed * 1.25);
+
+          // Ground warning hologram decal appears ahead of the crate (~1.4s before drop)
+          const decalTriggerZ = dropTriggerZ - Math.max(18, speed * 1.4);
+          const showDecal = currentZ >= decalTriggerZ;
+          if (obs.decal) obs.decal.visible = showDecal;
+          if (obs.ring) obs.ring.visible = showDecal;
+
+          // Crate appears in the air shortly before drop (narrow window ~0.65s instead of hanging for 10+ seconds)
+          const appearTriggerZ = dropTriggerZ - Math.max(9, speed * 0.65);
+          if (currentZ >= appearTriggerZ) {
+            obs.crateGroup.visible = true;
+          } else {
+            obs.crateGroup.visible = false;
+          }
+
           if (currentZ >= dropTriggerZ) {
             obs.dropping = true;
           }
           if (obs.dropping) {
+            obs.crateGroup.visible = true;
             obs.fallVelocity += 58.0 * dt; // snappy metallic gravity acceleration
             obs.currentY -= obs.fallVelocity * dt;
             if (obs.currentY <= 0.9) {
@@ -572,7 +622,7 @@ export class ObstacleManager {
             obs.crateGroup.position.y = obs.currentY;
           }
           // Pulsate ground warning decal
-          if (obs.decal && obs.ring) {
+          if (obs.decal && obs.ring && showDecal) {
             const freq = obs.dropping ? 0.025 : 0.008;
             const pulse = 0.4 + 0.5 * Math.sin(Date.now() * freq);
             obs.decal.material.opacity = pulse;
@@ -581,6 +631,9 @@ export class ObstacleManager {
           obs.minY = obs.currentY - 0.9;
           obs.maxY = obs.currentY + 0.9;
         } else {
+          obs.crateGroup.visible = true;
+          if (obs.decal) obs.decal.visible = true;
+          if (obs.ring) obs.ring.visible = true;
           // Fade warning decal after impact
           if (obs.decal) obs.decal.material.opacity = Math.max(0.12, obs.decal.material.opacity - dt * 0.6);
           if (obs.ring) obs.ring.material.opacity = Math.max(0.15, obs.ring.material.opacity - dt * 0.6);

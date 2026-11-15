@@ -40,6 +40,10 @@ export class GridZoneControl extends BaseControl {
     this._desiredLane = 0;
     /** Whether the duck posture should be held this frame */
     this._isDucking = false;
+
+    this._prevCol = null;
+    this._prevRow = null;
+    this.onZoneAction = null; // callback({ axis: 'lr'|'ud', dir: string, mode: string })
   }
 
   _onEnable() {
@@ -49,11 +53,15 @@ export class GridZoneControl extends BaseControl {
     }
     this._desiredLane = 0;
     this._isDucking   = false;
+    this._prevCol     = null;
+    this._prevRow     = null;
   }
 
   _onDisable() {
     this._desiredLane = 0;
     this._isDucking   = false;
+    this._prevCol     = null;
+    this._prevRow     = null;
   }
 
   update(_dt) {
@@ -67,6 +75,8 @@ export class GridZoneControl extends BaseControl {
     // No tracking signal — release duck, preserve current lane
     if (!source) {
       this._isDucking = false;
+      this._prevCol   = null;
+      this._prevRow   = null;
       return;
     }
 
@@ -80,6 +90,21 @@ export class GridZoneControl extends BaseControl {
 
     // Jump is a repeated impulse while zone is top (bunny-hop)
     if (row === 'top') this._push({ jump: true });
+
+    // Track zone transition events for action telemetry
+    if (col && col !== this._prevCol) {
+      if (col === 'L' || col === 'R') {
+        this.onZoneAction?.({ axis: 'lr', dir: col, mode: this._mode });
+      }
+      this._prevCol = col;
+    }
+
+    if (row && row !== this._prevRow) {
+      if (row === 'top' || row === 'bot') {
+        this.onZoneAction?.({ axis: 'ud', dir: row, mode: this._mode });
+      }
+      this._prevRow = row;
+    }
   }
 
   consume() {

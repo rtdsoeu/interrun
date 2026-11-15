@@ -97,6 +97,15 @@ export class DebugShortcuts {
       }
       return;
     }
+
+    // C: Recalibrate camera angle (Only for Zone Control Stages: 2 FaceZone, 3 HandZone)
+    if (e.code === 'KeyC' || key === 'c' || key === 'C') {
+      const currentStage = this.engine.scoreSystem?.stage ?? this.engine.controlManager?.stage;
+      if ((currentStage === 2 || currentStage === 3) && this.engine.visionManager?.isReady) {
+        this.engine.visionManager.recalibrate();
+      }
+      return;
+    }
   }
 
   /**

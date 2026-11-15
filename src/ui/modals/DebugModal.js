@@ -28,6 +28,10 @@ export class DebugModal {
     return document.getElementById('debug-opt-god');
   }
 
+  get elOptDda() {
+    return document.getElementById('debug-opt-dda');
+  }
+
   open() {
     this.elModal?.classList.remove('hidden');
     this.updateStageButtons();
@@ -86,9 +90,10 @@ export class DebugModal {
         this.updateStageButtons();
         const isLocked = !!this.elOptLock?.checked;
         const isGod    = !!this.elOptGod?.checked;
+        const isDda    = this.elOptDda ? !!this.elOptDda.checked : true;
         this.close();
         if (this.onStartDebug) {
-          this.onStartDebug(this.selectedStage, isLocked, isGod, this.selectedSpeed);
+          this.onStartDebug(this.selectedStage, isLocked, isGod, this.selectedSpeed, isDda);
         }
       });
     });
@@ -106,9 +111,10 @@ export class DebugModal {
       this.soundFx?.init();
       const isLocked = !!this.elOptLock?.checked;
       const isGod    = !!this.elOptGod?.checked;
+      const isDda    = this.elOptDda ? !!this.elOptDda.checked : true;
       this.close();
       if (this.onStartDebug) {
-        this.onStartDebug(this.selectedStage, isLocked, isGod, this.selectedSpeed);
+        this.onStartDebug(this.selectedStage, isLocked, isGod, this.selectedSpeed, isDda);
       }
     });
 
@@ -116,9 +122,10 @@ export class DebugModal {
     bindFastTap('btn-debug-live-apply', () => {
       const isLocked = !!this.elOptLock?.checked;
       const isGod    = !!this.elOptGod?.checked;
+      const isDda    = this.elOptDda ? !!this.elOptDda.checked : true;
       this.close();
       if (this.onApplyLiveDebug) {
-        this.onApplyLiveDebug(this.selectedStage, isLocked, isGod, this.selectedSpeed);
+        this.onApplyLiveDebug(this.selectedStage, isLocked, isGod, this.selectedSpeed, isDda);
       }
     });
   }

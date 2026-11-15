@@ -52,6 +52,11 @@ describe('TelemetryManager', () => {
   it('calculates physical Time-To-Collision (TTC) for last-moment dodges', () => {
     telemetry.startSession(0, false, 1.0);
 
+    let recordedData = null;
+    telemetry.onReactionRecorded = (data) => {
+      recordedData = data;
+    };
+
     // Obstacle enters horizon at Z = -25
     telemetry.recordObstacleHorizon('obs_last_second', 50, 0, 'train_blocker', -25);
 
@@ -65,6 +70,10 @@ describe('TelemetryManager', () => {
     const session = telemetry.endSession(150, 150, 8);
     expect(session.stages[0].avgReactionTimeMs).toBe(200);
     expect(session.stages[0].avgTtcMs).toBe(200);
+    expect(recordedData).not.toBeNull();
+    expect(recordedData.distAhead).toBe(3);
+    expect(recordedData.ttcMs).toBe(200);
+    expect(recordedData.actionType).toBe('lane');
   });
 
   it('calculates physical Time-To-Collision (TTC) for early safe dodges', () => {
@@ -80,6 +89,50 @@ describe('TelemetryManager', () => {
 
     const session = telemetry.endSession(200, 200, 10);
     expect(session.stages[0].avgTtcMs).toBe(1000);
+  });
+
+  it('records empirical physical action counters (button presses, head tilts, hand gestures, near-misses)', () => {
+    telemetry.startSession(0, false, 1.0);
+
+    // 1. Button presses
+    telemetry.recordButtonPress();
+    telemetry.recordButtonPress();
+    telemetry.recordButtonPress();
+
+    // 2. Head tilts
+    telemetry.recordHeadTilt('lr');
+    telemetry.recordHeadTilt('lr');
+    telemetry.recordHeadTilt('ud');
+
+    // 3. Hand gestures
+    telemetry.recordHandGesture();
+    telemetry.recordHandGesture();
+
+    // 4. Near-misses
+    telemetry.recordNearMiss();
+
+    const activeCounters = telemetry.getActionCounters();
+    expect(activeCounters.buttonPresses).toBe(3);
+    expect(activeCounters.headTiltsLeftRight).toBe(2);
+    expect(activeCounters.headTiltsUpDown).toBe(1);
+    expect(activeCounters.totalHeadTilts).toBe(3);
+    expect(activeCounters.handGestures).toBe(2);
+    expect(activeCounters.nearMisses).toBe(1);
+    expect(activeCounters.totalActions).toBe(8); // 3 buttons + 2 lr + 1 ud + 2 hands
+
+    const completed = telemetry.endSession(350, 500, 15);
+    expect(completed.actions).toBeDefined();
+    expect(completed.actions.buttonPresses).toBe(3);
+    expect(completed.actions.headTiltsLeftRight).toBe(2);
+    expect(completed.actions.headTiltsUpDown).toBe(1);
+    expect(completed.actions.handGestures).toBe(2);
+    expect(completed.actions.nearMisses).toBe(1);
+
+    // After session completion, getActionCounters() returns last finalized actions
+    const postCounters = telemetry.getActionCounters();
+    expect(postCounters.buttonPresses).toBe(3);
+    expect(postCounters.totalHeadTilts).toBe(3);
+    expect(postCounters.handGestures).toBe(2);
   });
 
   it('exports valid JSON and CSV telemetry data', () => {
@@ -119,6 +172,30 @@ describe('TelemetryManager', () => {
     expect(curve.length).toBe(2);
     expect(curve[0].runIndex).toBe(1);
     expect(curve[1].runIndex).toBe(2);
+  });
+
+  it('tracks kinematic path length and classifies movement economy', () => {
+    telemetry.startSession(2, false, 1.0);
+
+    // Simulate 30 frames of head micro-motions (minimalist)
+    for (let i = 0; i < 30; i++) {
+      telemetry.recordKinematics({ source: 'face', deltaDist: 0.008, speed: 0.24 });
+    }
+
+    const summary = telemetry.getKinematicSummary();
+    expect(summary).not.toBeNull();
+    expect(summary.headMeters).toBeGreaterThan(0);
+    expect(summary.style).toBe('minimalist');
+    expect(summary.styleLabel).toContain('Мінімаліст');
+
+    // Simulate wide hand gestures
+    for (let i = 0; i < 30; i++) {
+      telemetry.recordKinematics({ source: 'hands', deltaDist: 0.05, speed: 1.5 });
+    }
+
+    const updatedSummary = telemetry.getKinematicSummary();
+    expect(updatedSummary.handMeters).toBeGreaterThan(0);
+    expect(updatedSummary.totalMeters).toBe(Math.round((updatedSummary.headMeters + updatedSummary.handMeters) * 10) / 10);
   });
 });
 

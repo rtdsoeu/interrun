@@ -19,16 +19,23 @@ export class PointerControl extends BaseControl {
     this._startY = 0;
     this._isDown = false;
     this._swipeTriggered = false;
+    this.onPointerAction = null; // callback(actionType)
 
     // Thresholds tuned for comfortable touch and mouse usage
-    this.SWIPE_THRESHOLD_X = 30;
-    this.SWIPE_THRESHOLD_Y = 35;
+    this.SWIPE_THRESHOLD_X = 22;
+    this.SWIPE_THRESHOLD_Y = 25;
 
     // Bound handlers (mouse)
     this._onMouseDown     = (e) => { if (e?.target && this._isUIElement(e.target)) return; this._handleDown(e?.clientX ?? 0, e?.clientY ?? 0, e?.button ?? 0); };
     this._onMouseMove     = (e) => this._handleMove(e?.clientX ?? 0, e?.clientY ?? 0);
     this._onMouseUp       = (e) => { if (e?.target && this._isUIElement(e.target)) return; this._handleUp(e?.clientX ?? 0, e?.clientY ?? 0, e?.button ?? 0); };
-    this._onContextMenu   = (e) => { e?.preventDefault?.(); if (this._enabled) this._push({ slide: true }); };
+    this._onContextMenu   = (e) => {
+      e?.preventDefault?.();
+      if (this._enabled) {
+        this._push({ slide: true });
+        this.onPointerAction?.('right_click_slide');
+      }
+    };
 
     // Bound handlers (touch)
     this._onTouchStart = (e) => {
@@ -95,24 +102,39 @@ export class PointerControl extends BaseControl {
     if (Math.abs(dx) > this.SWIPE_THRESHOLD_X && Math.abs(dx) > Math.abs(dy)) {
       this._push({ laneDelta: dx > 0 ? 1 : -1 });
       this._swipeTriggered = true;
+      if (this._enabled) this.onPointerAction?.(dx > 0 ? 'swipe_right' : 'swipe_left');
       return;
     }
 
     if (Math.abs(dy) > this.SWIPE_THRESHOLD_Y) {
       this._push(dy < 0 ? { jump: true } : { slide: true });
       this._swipeTriggered = true;
+      if (this._enabled) this.onPointerAction?.(dy < 0 ? 'swipe_up' : 'swipe_down');
     }
   }
 
   _handleUp(x, y, button) {
     if (!this._isDown) return;
 
-    const dx = Math.abs(x - this._startX);
-    const dy = Math.abs(y - this._startY);
+    const dx = x - this._startX;
+    const dy = y - this._startY;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
 
-    // Quick tap without swipe → jump
-    if (!this._swipeTriggered && dx < 12 && dy < 12 && button === 0) {
-      this._push({ jump: true });
+    if (!this._swipeTriggered) {
+      if (absX >= 18 && absX >= absY) {
+        // Fast horizontal flick gesture ending on release
+        this._push({ laneDelta: dx > 0 ? 1 : -1 });
+        if (this._enabled) this.onPointerAction?.(dx > 0 ? 'swipe_right' : 'swipe_left');
+      } else if (absY >= 18 && absY > absX) {
+        // Fast vertical flick gesture ending on release
+        this._push(dy < 0 ? { jump: true } : { slide: true });
+        if (this._enabled) this.onPointerAction?.(dy < 0 ? 'swipe_up' : 'swipe_down');
+      } else if (absX < 18 && absY < 18 && button === 0) {
+        // Quick tap without swipe → jump
+        this._push({ jump: true });
+        if (this._enabled) this.onPointerAction?.('tap_jump');
+      }
     }
 
     this._isDown = false;

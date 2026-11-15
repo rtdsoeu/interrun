@@ -21,8 +21,13 @@ export class TelemetryManager {
     this._pendingObstacles = new Map(); // id -> { detectedTime, distance, lane, type }
     this._reactionSamples = []; // { stage, deltaMs }
 
+    // Event hooks for adaptive managers (e.g. AdaptiveDifficultyManager)
+    this.onReactionRecorded = null; // callback({ stage, ttcMs, actionType })
+    this.onCollisionRecorded = null; // callback({ stage, distance, obstacleType })
+
     // Memory cache for saved sessions
     this._history = this._loadHistory();
+    this._lastSessionActions = null;
   }
 
   _getStorage() {
@@ -96,7 +101,25 @@ export class TelemetryManager {
       earlyCollisions: 0,
       lateCollisions: 0,
       earlyDistance: 0,
-      lateDistance: 0
+      lateDistance: 0,
+
+      // Physical interaction action counters
+      actions: {
+        buttonPresses: 0,
+        headTiltsLeftRight: 0,
+        headTiltsUpDown: 0,
+        handGestures: 0,
+        nearMisses: 0
+      },
+
+      // Kinematic trajectory & movement excursion tracking
+      kinematics: {
+        totalHeadPathNorm: 0,
+        totalHandPathNorm: 0,
+        headSamples: 0,
+        handSamples: 0,
+        nearMisses: 0
+      }
     };
   }
 
@@ -212,19 +235,23 @@ export class TelemetryManager {
       this._pendingObstacles.delete(earliestKey);
 
       let ttcMs;
+      let distAhead = null;
       if (typeof nearestObsZ === 'number' && typeof runnerZ === 'number' && typeof currentSpeed === 'number' && currentSpeed > 0) {
         // Physical TTC based on live obstacle distance ahead: TTC = (runnerZ - nearestObsZ) / speed
-        const distAhead = Math.max(0.1, runnerZ - nearestObsZ);
+        distAhead = Math.max(0.1, runnerZ - nearestObsZ);
         ttcMs = Math.round((distAhead / currentSpeed) * 1000);
       } else if (typeof runnerZ === 'number' && typeof currentSpeed === 'number' && currentSpeed > 0 && typeof obs.z === 'number') {
         // Kinematic TTC: obstacle moved forward by speed * dt since detected
         const elapsedSec = (now - obs.detectedTime) / 1000;
         const currentZ = obs.z + elapsedSec * currentSpeed;
-        const distAhead = Math.max(0.1, runnerZ - currentZ);
+        distAhead = Math.max(0.1, runnerZ - currentZ);
         ttcMs = Math.round((distAhead / currentSpeed) * 1000);
       } else {
         // Fallback to timestamp delta
         ttcMs = Math.round(now - obs.detectedTime);
+        if (typeof currentSpeed === 'number' && currentSpeed > 0) {
+          distAhead = Math.round(((ttcMs / 1000) * currentSpeed) * 10) / 10;
+        }
       }
 
       // Valid physical TTC range: 80ms (extreme near-miss) to 2000ms (early safe dodge)
@@ -234,8 +261,145 @@ export class TelemetryManager {
           record.reactionTimesMs.push(ttcMs);
         }
         this._reactionSamples.push({ stage: obs.stage, deltaMs: ttcMs, ttcMs, actionType });
+
+        if (this.onReactionRecorded) {
+          try {
+            this.onReactionRecorded({ stage: obs.stage, ttcMs, actionType, currentSpeed, distAhead });
+          } catch (err) {
+            console.warn('[TelemetryManager] onReactionRecorded callback error:', err);
+          }
+        }
       }
     }
+  }
+
+  /**
+   * Records a kinematic motion delta from computer vision tracking.
+   * @param {{ source: 'face'|'hands', deltaDist: number, speed: number }} kinematics
+   */
+  recordKinematics(kinematics) {
+    if (!this.currentSession || !kinematics || typeof kinematics.deltaDist !== 'number') return;
+    const k = this.currentSession.kinematics;
+    if (!k) return;
+
+    if (kinematics.source === 'face') {
+      k.totalHeadPathNorm += kinematics.deltaDist;
+      k.headSamples++;
+    } else if (kinematics.source === 'hands') {
+      k.totalHandPathNorm += kinematics.deltaDist;
+      k.handSamples++;
+    }
+  }
+
+  /**
+   * Records a physical button press (keyboard or virtual touch D-pad).
+   */
+  recordButtonPress() {
+    if (this.currentSession?.actions) {
+      this.currentSession.actions.buttonPresses++;
+    }
+  }
+
+  /**
+   * Records a head tilt event (left/right or up/down).
+   * @param {'lr'|'ud'|'left'|'right'|'up'|'down'} [axisOrDir='lr']
+   */
+  recordHeadTilt(axisOrDir = 'lr') {
+    if (!this.currentSession?.actions) return;
+    if (axisOrDir === 'ud' || axisOrDir === 'up' || axisOrDir === 'down') {
+      this.currentSession.actions.headTiltsUpDown++;
+    } else {
+      this.currentSession.actions.headTiltsLeftRight++;
+    }
+  }
+
+  /**
+   * Records a hand gesture event (zone transition, finger gesture, or air swipe).
+   */
+  recordHandGesture() {
+    if (this.currentSession?.actions) {
+      this.currentSession.actions.handGestures++;
+    }
+  }
+
+  /**
+   * Increments near-miss count in active session.
+   */
+  recordNearMiss() {
+    if (this.currentSession?.actions) {
+      this.currentSession.actions.nearMisses++;
+    }
+    if (this.currentSession?.kinematics) {
+      this.currentSession.kinematics.nearMisses++;
+    }
+  }
+
+  /**
+   * Returns empirical action counters for current or last finalized session.
+   * @returns {{ buttonPresses: number, headTiltsLeftRight: number, headTiltsUpDown: number, totalHeadTilts: number, handGestures: number, nearMisses: number, totalActions: number }}
+   */
+  getActionCounters() {
+    const act = this.currentSession?.actions || this._lastSessionActions || {
+      buttonPresses: 0,
+      headTiltsLeftRight: 0,
+      headTiltsUpDown: 0,
+      handGestures: 0,
+      nearMisses: 0
+    };
+    const lr = act.headTiltsLeftRight || 0;
+    const ud = act.headTiltsUpDown || 0;
+    const buttons = act.buttonPresses || 0;
+    const hands = act.handGestures || 0;
+    const nearMisses = act.nearMisses || 0;
+    return {
+      buttonPresses: buttons,
+      headTiltsLeftRight: lr,
+      headTiltsUpDown: ud,
+      totalHeadTilts: lr + ud,
+      handGestures: hands,
+      nearMisses,
+      totalActions: buttons + lr + ud + hands
+    };
+  }
+
+  /**
+   * Generates a kinematic trajectory excursion and movement economy summary.
+   * @returns {Object|null}
+   */
+  getKinematicSummary() {
+    const k = this.currentSession?.kinematics;
+    if (!k) return null;
+
+    // Convert normalized travel to approximate real-world meters (camera FOV approx 0.50m)
+    const headMeters = Math.round(k.totalHeadPathNorm * 0.50 * 10) / 10;
+    const handMeters = Math.round(k.totalHandPathNorm * 0.50 * 10) / 10;
+    const totalSamples = k.headSamples + k.handSamples;
+    const avgDelta = totalSamples > 0 ? (k.totalHeadPathNorm + k.totalHandPathNorm) / totalSamples : 0;
+
+    let style = 'balanced';
+    let styleLabel = 'Збалансований';
+    let icon = '⚖️';
+    if (totalSamples > 25) {
+      if (avgDelta < 0.012) {
+        style = 'minimalist';
+        styleLabel = 'Мінімаліст (економічні мікро-рухи)';
+        icon = '🎯';
+      } else if (avgDelta > 0.038) {
+        style = 'expressive';
+        styleLabel = 'Експресивний (широкі енергійні жести)';
+        icon = '⚡';
+      }
+    }
+
+    return {
+      headMeters,
+      handMeters,
+      totalMeters: Math.round((headMeters + handMeters) * 10) / 10,
+      nearMisses: k.nearMisses,
+      style,
+      styleLabel,
+      icon
+    };
   }
 
   /**
@@ -253,6 +417,10 @@ export class TelemetryManager {
       record.collisions++;
     }
 
+    if (this.onCollisionRecorded) {
+      this.onCollisionRecorded({ stage, distance, obstacleType });
+    }
+
     // Classify into early vs late for fatigue analysis
     const isEarly = !this.currentSession.totalDistance || distance < (this.currentSession.totalDistance / 2);
     if (isEarly) {
@@ -267,15 +435,19 @@ export class TelemetryManager {
    * @param {number} finalDistance
    * @param {number} bestScore
    * @param {number} coins
+   * @param {Object} [ddaMetrics=null]
    * @returns {Object} Finalized session object
    */
-  endSession(finalDistance, bestScore, coins) {
+  endSession(finalDistance, bestScore, coins, ddaMetrics = null) {
     if (!this.currentSession) return null;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     this.currentSession.endPerfTime = now;
     this.currentSession.durationSec = Math.max(0.5, Math.round(((now - this.currentSession.startPerfTime) / 1000) * 10) / 10);
     this.currentSession.totalDistance = Math.floor(finalDistance);
     this.currentSession.coins = coins;
+    if (ddaMetrics) {
+      this.currentSession.dda = ddaMetrics;
+    }
 
     // Finalize the active stage record
     const curStage = this.currentSession.currentStage;
@@ -333,7 +505,11 @@ export class TelemetryManager {
       this.currentSession.fatigueIndex = 1.0;
     }
 
-    const completed = { ...this.currentSession };
+    this._lastSessionActions = this.currentSession.actions ? { ...this.currentSession.actions } : null;
+    const completed = {
+      ...this.currentSession,
+      actions: this._lastSessionActions ? { ...this._lastSessionActions } : undefined
+    };
     this._history.push(completed);
     this._saveHistory();
     this.currentSession = null;
@@ -461,6 +637,7 @@ export class TelemetryManager {
       'Duration_sec',
       'Coins',
       'FatigueIndex',
+      'DDA_State', 'DDA_Score', 'DDA_AssistSec', 'DDA_OptimalSec', 'DDA_ChallengeSec',
       'Stage0_Dist', 'Stage0_ErrorRate', 'Stage0_ReactionMs', 'Stage0_FPS',
       'Stage1_Dist', 'Stage1_ErrorRate', 'Stage1_ReactionMs', 'Stage1_FPS',
       'Stage2_Dist', 'Stage2_ErrorRate', 'Stage2_ReactionMs', 'Stage2_CV_FPS',
@@ -471,6 +648,7 @@ export class TelemetryManager {
 
     const rows = this._history.map((run, i) => {
       const s = (idx) => run.stages?.[idx] || {};
+      const dda = run.dda || {};
       return [
         i + 1,
         `"${run.timestamp}"`,
@@ -478,6 +656,11 @@ export class TelemetryManager {
         run.durationSec,
         run.coins,
         run.fatigueIndex ?? 1.0,
+        dda.state || 'optimal',
+        dda.averageScore ?? '',
+        dda.timeInAssistSec ?? '',
+        dda.timeInOptimalSec ?? '',
+        dda.timeInChallengeSec ?? '',
         s(0).distance || 0, s(0).errorRatePer100m || 0, s(0).avgReactionTimeMs || '', s(0).avgGameFps || 60,
         s(1).distance || 0, s(1).errorRatePer100m || 0, s(1).avgReactionTimeMs || '', s(1).avgGameFps || 60,
         s(2).distance || 0, s(2).errorRatePer100m || 0, s(2).avgReactionTimeMs || '', s(2).avgCvFps || '',
@@ -496,7 +679,7 @@ export class TelemetryManager {
     if (storage) {
       try {
         storage.removeItem(this.storageKey);
-      } catch {}
+      } catch { }
     }
   }
 }

@@ -13,9 +13,18 @@ export function dist2D(a, b) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+/** 3-D Euclidean distance between two {x,y,z} landmark points (viewpoint invariant) */
+export function dist3D(a, b) {
+  const dx = (a.x ?? 0) - (b.x ?? 0);
+  const dy = (a.y ?? 0) - (b.y ?? 0);
+  const dz = (a.z ?? 0) - (b.z ?? 0);
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
 /**
  * processFingerGesture (for FingerGestureControl, Stage 4)
  * Finger count + open palm + fist -> game actions.
+ * Fully invariant to hand facing direction (palm-forward vs dorsum/back-of-hand forward).
  */
 export function processFingerGesture(bitmap, timestamp, handLandmarker, baseState) {
   const state = baseState();
@@ -31,22 +40,39 @@ export function processFingerGesture(bitmap, timestamp, handLandmarker, baseStat
     const hand  = results.landmarks[0];
     const wrist = hand[0];
 
-    const thumbTip  = hand[4];  const thumbMCP = hand[2];
+    const thumbTip  = hand[4];  const thumbIP  = hand[3];  const thumbMCP = hand[2];
     const idxTip    = hand[8];  const idxDIP   = hand[7];  const idxPIP   = hand[6];  const idxMCP  = hand[5];
     const midTip    = hand[12]; const midDIP   = hand[11]; const midPIP   = hand[10]; const midMCP  = hand[9];
     const ringTip   = hand[16]; const ringDIP  = hand[15]; const ringPIP  = hand[14]; const ringMCP = hand[13];
     const pinkyTip  = hand[20]; const pinkyDIP = hand[19]; const pinkyPIP = hand[18]; const pinkyMCP = hand[17];
 
-    const wristToMid = dist2D(wrist, hand[9]);
+    const wristToMid = dist3D(wrist, hand[9]);
     const scale = wristToMid + 1e-5;
 
-    // Robust extension check based on intrinsic geometric invariants:
+    // Viewpoint-invariant 3D biometric finger extension analysis:
+    // When extended, TIP-to-MCP straight distance approaches total bone segment length (> 65%).
+    // When curled into palm or fist, TIP folds back towards MCP (< 50%), regardless of hand orientation.
     const isFingerExtended = (tip, dip, pip, mcp) => {
-      const isFurtherThanPIP = dist2D(tip, wrist) > dist2D(pip, wrist) * 1.04;
-      const isOutstretched = dist2D(tip, mcp) > scale * 0.38;
-      const isUncurled = dist2D(tip, mcp) > dist2D(pip, mcp) * 1.12;
-      const isUpperOrientation = tip.y < mcp.y + scale * 0.12;
-      return isFurtherThanPIP && isOutstretched && isUncurled && isUpperOrientation;
+      const d1 = dist3D(mcp, pip);
+      const d2 = dist3D(pip, dip);
+      const d3 = dist3D(dip, tip);
+      const boneLen = d1 + d2 + d3 + 1e-6;
+      const tipMcpDist = dist3D(tip, mcp);
+      const ratio = tipMcpDist / boneLen;
+
+      // 3D vector alignment between proximal phalanx (mcp->pip) and distal phalanx (pip->tip)
+      const v1x = pip.x - mcp.x, v1y = pip.y - mcp.y, v1z = (pip.z || 0) - (mcp.z || 0);
+      const v2x = tip.x - pip.x, v2y = tip.y - pip.y, v2z = (tip.z || 0) - (pip.z || 0);
+      const dot = v1x * v2x + v1y * v2y + v1z * v2z;
+      const mag1 = Math.sqrt(v1x * v1x + v1y * v1y + v1z * v1z) + 1e-6;
+      const mag2 = Math.sqrt(v2x * v2x + v2y * v2y + v2z * v2z) + 1e-6;
+      const alignment = dot / (mag1 * mag2);
+
+      const isStraightIn3D = ratio > 0.64;
+      const isAlignedIn3D = alignment > 0.25;
+      const isFurtherThanPip = dist3D(tip, wrist) > dist3D(pip, wrist) * 1.02;
+
+      return isStraightIn3D && isAlignedIn3D && isFurtherThanPip;
     };
 
     const idxUp   = isFingerExtended(idxTip, idxDIP, idxPIP, idxMCP);
@@ -54,14 +80,24 @@ export function processFingerGesture(bitmap, timestamp, handLandmarker, baseStat
     const ringUp  = isFingerExtended(ringTip, ringDIP, ringPIP, ringMCP);
     const pinkyUp = isFingerExtended(pinkyTip, pinkyDIP, pinkyPIP, pinkyMCP);
 
-    // Thumb is extended when spread outward away from the palm/index knuckle
-    const thumbUp = dist2D(thumbTip, idxMCP) > scale * 0.44 &&
-                    dist2D(thumbTip, wrist) > dist2D(thumbMCP, wrist) * 1.08;
+    // Viewpoint-invariant thumb extension:
+    // Thumb is open/extended when spread outward away from index & middle knuckles.
+    // When thumb is curled/tucked across fingers or palm (as in 1, 2, 3 fingers or fist),
+    // thumbTip is close to index MCP (5) or middle MCP (9).
+    const dThumb1 = dist3D(thumbMCP, thumbIP);
+    const dThumb2 = dist3D(thumbIP, thumbTip);
+    const thumbBoneLen = dThumb1 + dThumb2 + 1e-6;
+    const thumbRatio = dist3D(thumbTip, thumbMCP) / thumbBoneLen;
+    const minKnuckleDist = Math.min(dist3D(thumbTip, idxMCP), dist3D(thumbTip, midMCP));
+
+    const thumbUp = thumbRatio > 0.72 &&
+                    minKnuckleDist > scale * 0.46 &&
+                    dist3D(thumbTip, wrist) > dist3D(thumbMCP, wrist) * 1.05;
 
     const extendedCount = (idxUp ? 1 : 0) + (midUp ? 1 : 0) + (ringUp ? 1 : 0) + (pinkyUp ? 1 : 0);
 
     // Closed fist detection:
-    const isCompactFist = dist2D(idxTip, idxMCP) < scale * 0.58 && dist2D(midTip, midMCP) < scale * 0.58;
+    const isCompactFist = dist3D(idxTip, idxMCP) < scale * 0.58 && dist3D(midTip, midMCP) < scale * 0.58;
     const isTrueFist = (extendedCount === 0) && isCompactFist;
 
     if (isTrueFist) {
@@ -73,7 +109,7 @@ export function processFingerGesture(bitmap, timestamp, handLandmarker, baseStat
     let gesture = null;
     let label = '';
 
-    // 1. Open Palm: 4+ fingers extended (or 3 fingers + thumb spread) -> JUMP (instant priority)
+    // 1. Open Palm: 4+ fingers extended (or 3 main fingers + thumb spread) -> JUMP (instant priority)
     if (extendedCount >= 4 || (idxUp && midUp && ringUp && pinkyUp) || (extendedCount === 3 && thumbUp && idxUp && midUp)) {
       gesture = 'jump';
       label = '🖐️ PALM: JUMP';
@@ -90,7 +126,7 @@ export function processFingerGesture(bitmap, timestamp, handLandmarker, baseStat
       label = '🤟 3 FINGERS: RIGHT';
     }
     // 4. Two Fingers: strictly 2 fingers up (Index + Middle) -> CENTER LANE (0)
-    else if ((idxUp && midUp && !ringUp && !pinkyUp) || (extendedCount === 2 && (idxUp || midUp))) {
+    else if ((idxUp && midUp && !ringUp && !pinkyUp) || (extendedCount === 2 && (idxUp && midUp))) {
       gesture = 'lane_center';
       label = '✌️ 2 FINGERS: CENTER';
     }
@@ -103,20 +139,18 @@ export function processFingerGesture(bitmap, timestamp, handLandmarker, baseStat
       label = `✋ Fingers: ${extendedCount}`;
     }
 
-    // Continuous extension score for each finger: [0, 1]
+    // Continuous extension score for each finger [0, 1] based on 3D bone ratio
     const getFingerExtensionScore = (tip, dip, pip, mcp) => {
-      const mcpDistRatio = dist2D(tip, mcp) / scale;
-      const wristDistRatio = dist2D(tip, wrist) / (dist2D(pip, wrist) + 1e-5);
-      const s1 = Math.max(0, Math.min(1, (mcpDistRatio - 0.38) / (0.80 - 0.38)));
-      const s2 = Math.max(0, Math.min(1, (wristDistRatio - 0.95) / (1.25 - 0.95)));
-      return 0.5 * s1 + 0.5 * s2;
+      const boneLen = dist3D(mcp, pip) + dist3D(pip, dip) + dist3D(dip, tip) + 1e-6;
+      const ratio = dist3D(tip, mcp) / boneLen;
+      return Math.max(0, Math.min(1, (ratio - 0.45) / (0.80 - 0.45)));
     };
 
     const eIdx   = getFingerExtensionScore(idxTip, idxDIP, idxPIP, idxMCP);
     const eMid   = getFingerExtensionScore(midTip, midDIP, midPIP, midMCP);
     const eRing  = getFingerExtensionScore(ringTip, ringDIP, ringPIP, ringMCP);
     const ePinky = getFingerExtensionScore(pinkyTip, pinkyDIP, pinkyPIP, pinkyMCP);
-    const eThumb = Math.max(0, Math.min(1, (dist2D(thumbTip, idxMCP) / scale - 0.35) / 0.30));
+    const eThumb = Math.max(0, Math.min(1, (minKnuckleDist / scale - 0.35) / 0.25));
 
     // Continuous confidence scores for each gesture (0.0 to 1.0)
     const othersCurled1 = Math.min(1 - eMid, 1 - eRing, 1 - ePinky);

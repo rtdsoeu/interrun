@@ -150,6 +150,62 @@ describe('StageTransitionCoordinator', () => {
     expect(mockObstacleManager.setTransitioning).toHaveBeenCalledWith(false);
     expect(mockScoreSystem.setTransitioning).toHaveBeenCalledWith(false);
   });
+
+  it('holds transition countdown at 0.5s when checkStageReady returns false, then completes when ready', () => {
+    let isReady = false;
+    const waitingCoordinator = new StageTransitionCoordinator({
+      scoreSystem: mockScoreSystem,
+      obstacleManager: mockObstacleManager,
+      soundFx: mockSoundFx,
+      hud: mockHud,
+      onApplyStageSwitch: mockOnApplyStageSwitch,
+      checkStageReady: () => isReady
+    });
+
+    waitingCoordinator.startTransition(2);
+
+    // Advance 4.0s (exceeding nominal 3.5s duration)
+    waitingCoordinator.update(4.0);
+    // Should hold runway and enter waiting state at timer = 0.5
+    expect(waitingCoordinator.isTransitioning).toBe(true);
+    expect(waitingCoordinator.isWaitingForDetection).toBe(true);
+    expect(waitingCoordinator.timer).toBe(0.5);
+    expect(mockObstacleManager.setTransitioning).toHaveBeenCalledWith(true);
+
+    // Now model detects landmarks and confirms readiness
+    isReady = true;
+    waitingCoordinator.update(0.6);
+    expect(waitingCoordinator.isTransitioning).toBe(false);
+    expect(mockObstacleManager.setTransitioning).toHaveBeenCalledWith(false);
+  });
+
+  it('triggers onCalibrateAtEnd at the final 1.0s of transition countdown', () => {
+    const onCalibrate = vi.fn();
+    const calibCoordinator = new StageTransitionCoordinator({
+      scoreSystem: mockScoreSystem,
+      obstacleManager: mockObstacleManager,
+      soundFx: mockSoundFx,
+      hud: mockHud,
+      onApplyStageSwitch: mockOnApplyStageSwitch,
+      checkStageReady: () => true,
+      onCalibrateAtEnd: onCalibrate
+    });
+
+    calibCoordinator.startTransition(2);
+
+    // After 2.0s (timer = 1.5s): onCalibrate should NOT have fired yet
+    calibCoordinator.update(2.0);
+    expect(onCalibrate).not.toHaveBeenCalled();
+
+    // After another 0.6s (timer = 0.9s <= 1.0s): onCalibrate MUST fire once
+    calibCoordinator.update(0.6);
+    expect(onCalibrate).toHaveBeenCalledTimes(1);
+    expect(onCalibrate).toHaveBeenCalledWith(2);
+
+    // Further updates should NOT re-trigger onCalibrate
+    calibCoordinator.update(0.5);
+    expect(onCalibrate).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('DebugShortcuts', () => {
@@ -228,6 +284,50 @@ describe('DebugShortcuts', () => {
       target: { tagName: 'INPUT' }
     });
     expect(mockEngine.toggleGodMode).not.toHaveBeenCalled();
+
+    shortcuts.dispose();
+  });
+
+  it('only triggers camera recalibration on C key when active stage is a Zone Control stage (2 or 3)', () => {
+    const mockVisionManager = {
+      isReady: true,
+      recalibrate: vi.fn()
+    };
+    const testEngine = {
+      scoreSystem: { stage: 0 },
+      controlManager: { stage: 0 },
+      visionManager: mockVisionManager
+    };
+
+    const shortcuts = new DebugShortcuts({
+      engine: testEngine,
+      hud: mockHud,
+      soundFx: mockSoundFx
+    });
+
+    // Press C on Stage 0 (Keyboard): must NOT recalibrate zones
+    shortcuts._handleKeyDown({ code: 'KeyC', key: 'c' });
+    expect(mockVisionManager.recalibrate).not.toHaveBeenCalled();
+
+    // Press C on Stage 4 (FingerGesture): must NOT recalibrate zones
+    testEngine.scoreSystem.stage = 4;
+    shortcuts._handleKeyDown({ code: 'KeyC', key: 'c' });
+    expect(mockVisionManager.recalibrate).not.toHaveBeenCalled();
+
+    // Press C on Stage 5 (HandSwipe): must NOT recalibrate zones
+    testEngine.scoreSystem.stage = 5;
+    shortcuts._handleKeyDown({ code: 'KeyC', key: 'c' });
+    expect(mockVisionManager.recalibrate).not.toHaveBeenCalled();
+
+    // Press C on Stage 2 (FaceZone): MUST recalibrate zones
+    testEngine.scoreSystem.stage = 2;
+    shortcuts._handleKeyDown({ code: 'KeyC', key: 'c' });
+    expect(mockVisionManager.recalibrate).toHaveBeenCalledTimes(1);
+
+    // Press C on Stage 3 (HandZone): MUST recalibrate zones
+    testEngine.scoreSystem.stage = 3;
+    shortcuts._handleKeyDown({ code: 'KeyC', key: 'c' });
+    expect(mockVisionManager.recalibrate).toHaveBeenCalledTimes(2);
 
     shortcuts.dispose();
   });

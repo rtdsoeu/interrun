@@ -16,6 +16,9 @@ describe('UI Templates (getHUDHtml)', () => {
     expect(html).toContain('id="slider-bgm-vol"');
     expect(html).toContain('id="slider-sfx-vol"');
     expect(html).toContain('id="settings-modal"');
+    expect(html).toContain('id="menu-slider-speed"');
+    expect(html).toContain('id="slider-speed-mult"');
+    expect(html).not.toContain('id="hud-dda-panel"');
   });
 
   it('renders getHUDHtml correctly with populated settings state', () => {
@@ -201,6 +204,212 @@ describe('HUD Class Logic', () => {
 
       hud.updateSoundState(false);
       expect(getEl('hud-sound-icon').textContent).toBe('🔊');
+    } finally {
+      globalThis.document = origDoc;
+    }
+  });
+
+  it('restricts webcam PIP preview and toggle button on non-CV stages (0 and 1)', async () => {
+    const { Hud } = await import('../src/ui/Hud.js');
+    const { mockDoc, getEl } = setupMockDocument();
+    const origDoc = globalThis.document;
+    globalThis.document = mockDoc;
+
+    try {
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
+
+      // Stage 0: Keyboard (non-CV)
+      hud.announceStage(0);
+      expect(getEl('btn-toggle-cam').classList.contains('hidden')).toBe(true);
+      hud.showWebcamPip(true);
+      expect(getEl('webcam-pip').classList.contains('hidden')).toBe(true);
+
+      // Stage 1: Pointer (non-CV)
+      hud.announceStage(1);
+      expect(getEl('btn-toggle-cam').classList.contains('hidden')).toBe(true);
+      hud.showWebcamPip(true);
+      expect(getEl('webcam-pip').classList.contains('hidden')).toBe(true);
+
+      // Stage 2: FaceZone (CV stage)
+      hud.announceStage(2);
+      expect(getEl('btn-toggle-cam').classList.contains('hidden')).toBe(false);
+      hud.showWebcamPip(true);
+      expect(getEl('webcam-pip').classList.contains('hidden')).toBe(false);
+
+      // Loop back to Stage 0: Keyboard
+      hud.announceStage(0);
+      expect(getEl('btn-toggle-cam').classList.contains('hidden')).toBe(true);
+      expect(getEl('webcam-pip').classList.contains('hidden')).toBe(true);
+    } finally {
+      globalThis.document = origDoc;
+    }
+  });
+
+  it('opens webcam PIP immediately when launched directly into a CV stage without prior announceStage', async () => {
+    const { Hud } = await import('../src/ui/Hud.js');
+    const { mockDoc, getEl } = setupMockDocument();
+    const origDoc = globalThis.document;
+    globalThis.document = mockDoc;
+
+    try {
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
+
+      // Direct launch with stage 2 passed as forcedStage
+      hud.showWebcamPip(true, 2);
+      expect(getEl('webcam-pip').classList.contains('hidden')).toBe(false);
+
+      // Announce stage 2 directly
+      hud.announceStage(2);
+      expect(getEl('btn-toggle-cam').classList.contains('hidden')).toBe(false);
+      expect(getEl('webcam-pip').classList.contains('hidden')).toBe(false);
+    } finally {
+      globalThis.document = origDoc;
+    }
+  });
+
+  it('exposes speedMultiplier in hud.settings and respects defaults', async () => {
+    const { Hud } = await import('../src/ui/Hud.js');
+    const { mockDoc } = setupMockDocument();
+    const origDoc = globalThis.document;
+    globalThis.document = mockDoc;
+
+    try {
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
+      expect(hud.settings).toBeDefined();
+      expect(typeof hud.settings.speedMultiplier).toBe('number');
+      expect(hud.settings.speedMultiplier).toBe(1.0);
+    } finally {
+      globalThis.document = origDoc;
+    }
+  });
+
+  it('renders Adaptive AI Summary card in showGameOver with flow rate, TTC, assists, and kinematics', async () => {
+    const { Hud } = await import('../src/ui/Hud.js');
+    const { mockDoc, getEl } = setupMockDocument();
+    const origDoc = globalThis.document;
+    globalThis.document = mockDoc;
+
+    try {
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
+
+      const aiSummary = {
+        dda: {
+          timeInAssistSec: 5.0,
+          timeInOptimalSec: 35.0,
+          timeInChallengeSec: 10.0,
+          totalCollisions: 2,
+          recentSamples: 5,
+          averageScore: 0.8,
+          playStyle: {
+            archetype: 'risk_taker',
+            maneuverArchetype: 'weaver',
+            personaTitle: '🔥 Risk Weaver',
+            avgTtcMs: 310,
+            sampleCount: 5,
+            nearMissCount: 3,
+            regularityPct: 82
+          }
+        },
+        kinematics: {
+          headMeters: 1.8,
+          handMeters: 3.4,
+          style: 'minimalist',
+          styleLabel: 'Minimalist',
+          icon: '🎯'
+        }
+      };
+
+      hud.showGameOver(350.5, 500, 42, aiSummary);
+
+      expect(getEl('death-dist').textContent).toBe(350);
+      expect(getEl('death-best').textContent).toBe(500);
+      expect(getEl('death-coins').textContent).toBe(42);
+
+      // AI Card visibility
+      expect(getEl('death-ai-card').classList.contains('hidden')).toBe(false);
+
+      // Flow rate: 35 / (5 + 35 + 10) = 70%
+      expect(getEl('death-ai-flow-val').textContent).toBe('70%');
+
+      // TTC
+      expect(getEl('death-ai-ttc-val').textContent).toBe('310 ms');
+
+      // Assists
+      expect(getEl('death-ai-assists-val').textContent).toBe('2');
+
+      // Kinematics
+      expect(getEl('death-ai-kin-val').textContent).toContain('1.8');
+      expect(getEl('death-ai-kin-val').textContent).toContain('3.4');
+
+      // Persona
+      expect(getEl('death-ai-persona').textContent).toContain('Risk Weaver');
+    } finally {
+      globalThis.document = origDoc;
+    }
+  });
+
+  it('renders physical interaction counters in showGameOver (buttons, head tilts, hand gestures, distance, near-misses)', async () => {
+    const { Hud } = await import('../src/ui/Hud.js');
+    const { mockDoc, getEl } = setupMockDocument();
+    const origDoc = globalThis.document;
+    globalThis.document = mockDoc;
+
+    try {
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
+
+      const summary = {
+        actions: {
+          buttonPresses: 42,
+          headTiltsLeftRight: 14,
+          headTiltsUpDown: 8,
+          totalHeadTilts: 22,
+          handGestures: 19,
+          nearMisses: 6,
+          totalActions: 83
+        }
+      };
+
+      hud.showGameOver(1450.8, 2000, 75, summary);
+
+      // Card must be visible
+      expect(getEl('death-ai-card').classList.contains('hidden')).toBe(false);
+
+      // 1. Distance
+      expect(getEl('death-act-dist').textContent).toBe('1450 м');
+
+      // 2. Near-misses
+      expect(getEl('death-act-nearmiss').textContent).toBe('6');
+
+      // 3. Button presses
+      expect(getEl('death-act-buttons').textContent).toBe('42');
+
+      // 4. Hand gestures
+      expect(getEl('death-act-hands').textContent).toBe('19');
+
+      // 5. Head tilts
+      expect(getEl('death-act-head-total').textContent).toBe('22');
+      expect(getEl('death-act-head-lr').textContent).toBe('14');
+      expect(getEl('death-act-head-ud').textContent).toBe('8');
+
+      // Header total actions badge
+      expect(getEl('death-ai-persona').textContent).toContain('83');
+    } finally {
+      globalThis.document = origDoc;
+    }
+  });
+
+  it('hides Adaptive AI Summary card in showGameOver when no AI summary is passed', async () => {
+    const { Hud } = await import('../src/ui/Hud.js');
+    const { mockDoc, getEl } = setupMockDocument();
+    const origDoc = globalThis.document;
+    globalThis.document = mockDoc;
+
+    try {
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
+      hud.showGameOver(120, 200, 10, null);
+
+      expect(getEl('death-ai-card').classList.contains('hidden')).toBe(true);
+      expect(getEl('death-dist').textContent).toBe(120);
     } finally {
       globalThis.document = origDoc;
     }

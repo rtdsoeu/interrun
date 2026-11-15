@@ -22,10 +22,14 @@ export class FingerGestureControl extends BaseControl {
 
     /** Fist gesture re-arm latch to prevent continuous slide spam without releasing fist */
     this._fistArmed = true;
+    /** Open palm jump re-arm latch for action telemetry */
+    this._jumpArmed = true;
 
     /** Lane stability confirmation buffer */
     this._pendingLaneGesture = null;
     this._pendingLaneTimer = 0;
+
+    this.onGesture = null; // callback(gestureName)
   }
 
   _onEnable() {
@@ -35,6 +39,7 @@ export class FingerGestureControl extends BaseControl {
     }
     this._desiredLane = 0;
     this._fistArmed = true;
+    this._jumpArmed = true;
     this._pendingLaneGesture = null;
     this._pendingLaneTimer = 0;
   }
@@ -42,6 +47,7 @@ export class FingerGestureControl extends BaseControl {
   _onDisable() {
     this._desiredLane = 0;
     this._fistArmed = true;
+    this._jumpArmed = true;
     this._pendingLaneGesture = null;
     this._pendingLaneTimer = 0;
   }
@@ -51,9 +57,10 @@ export class FingerGestureControl extends BaseControl {
 
     const { fgGesture, fgSource } = this.vision.currentState;
 
-    // No tracking — re-arm fist and reset lane change buffer immediately
+    // No tracking — re-arm fist/jump and reset lane change buffer immediately
     if (!fgSource) {
       this._fistArmed = true;
+      this._jumpArmed = true;
       this._pendingLaneGesture = null;
       this._pendingLaneTimer = 0;
       return;
@@ -64,7 +71,9 @@ export class FingerGestureControl extends BaseControl {
       if (this._fistArmed) {
         this._push({ slide: true });
         this._fistArmed = false;
+        this.onGesture?.('duck');
       }
+      this._jumpArmed = true;
       this._pendingLaneGesture = null;
       this._pendingLaneTimer = 0;
       return;
@@ -75,11 +84,19 @@ export class FingerGestureControl extends BaseControl {
 
     // 2. JUMP (INSTANT PRIORITY)
     if (fgGesture === 'jump') {
-      this._push({ jump: true });
+      if (this._jumpArmed) {
+        this._push({ jump: true });
+        this._jumpArmed = false;
+        this.onGesture?.('jump');
+      } else {
+        this._push({ jump: true });
+      }
       this._pendingLaneGesture = null;
       this._pendingLaneTimer = 0;
       return;
     }
+
+    this._jumpArmed = true;
 
     // 3. LANE SWITCHES (requires ~80ms stability confirmation
     // so transitioning curled fingers do not cause false lane shifts)
@@ -87,9 +104,11 @@ export class FingerGestureControl extends BaseControl {
       if (this._pendingLaneGesture === fgGesture) {
         this._pendingLaneTimer += dt;
         if (this._pendingLaneTimer >= 0.08) {
-          if (fgGesture === 'lane_left')   this._desiredLane = -1;
-          if (fgGesture === 'lane_center') this._desiredLane = 0;
-          if (fgGesture === 'lane_right')  this._desiredLane = 1;
+          const nextLane = fgGesture === 'lane_left' ? -1 : fgGesture === 'lane_right' ? 1 : 0;
+          if (nextLane !== this._desiredLane) {
+            this._desiredLane = nextLane;
+            this.onGesture?.(fgGesture);
+          }
         }
       } else {
         this._pendingLaneGesture = fgGesture;

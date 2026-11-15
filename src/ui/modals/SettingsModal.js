@@ -46,6 +46,12 @@ export class SettingsModal {
     if (sliderSfx) sliderSfx.value = settings.sfxVolume;
     if (valSfx) valSfx.textContent = `${Math.round(settings.sfxVolume * 100)}%`;
 
+    const sliderSpeed = document.getElementById('slider-speed-mult');
+    const valSpeed = document.getElementById('settings-speed-val');
+    const speedMult = settings.speedMultiplier ?? 1.0;
+    if (sliderSpeed) sliderSpeed.value = speedMult;
+    if (valSpeed) valSpeed.textContent = `${Number(speedMult).toFixed(2)}x`;
+
     const elTrack = document.getElementById('settings-current-track-name');
     if (elTrack && soundFx) {
       elTrack.textContent = soundFx.currentTrackTitle;
@@ -137,6 +143,23 @@ export class SettingsModal {
         if (valSfx) valSfx.textContent = `${Math.round(val * 100)}%`;
         if (this.onUpdateAudioSettings) {
           this.onUpdateAudioSettings({ sfxVolume: val });
+        }
+      });
+    }
+
+    const sliderSpeed = document.getElementById('slider-speed-mult');
+    const valSpeed = document.getElementById('settings-speed-val');
+    if (sliderSpeed) {
+      sliderSpeed.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        settings.speedMultiplier = val;
+        if (valSpeed) valSpeed.textContent = `${val.toFixed(2)}x`;
+        const menuSlider = document.getElementById('menu-slider-speed');
+        const menuVal = document.getElementById('menu-speed-val');
+        if (menuSlider) menuSlider.value = val;
+        if (menuVal) menuVal.textContent = `${val.toFixed(2)}x`;
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('interrun_speed_mult', String(val));
         }
       });
     }

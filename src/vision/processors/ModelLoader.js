@@ -162,7 +162,7 @@ export async function initVision() {
     console.warn('[VisionWorker] Local wasm init failed, trying CDN:', err);
     try {
       visionTasks = await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm',
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.3/wasm',
         true
       );
       console.log('[VisionWorker] FilesetResolver CDN fallback successful');
@@ -224,9 +224,9 @@ export async function loadHandModel() {
         {
           runningMode: 'VIDEO',
           numHands: 1,
-          minHandDetectionConfidence: 0.5,
-          minHandPresenceConfidence: 0.5,
-          minTrackingConfidence: 0.5
+          minHandDetectionConfidence: 0.4,
+          minHandPresenceConfidence: 0.4,
+          minTrackingConfidence: 0.4
         }
       );
       self.postMessage({ type: 'model_ready', mode: 'hands', delegate: handLandmarker._delegate, src: handLandmarker._src });

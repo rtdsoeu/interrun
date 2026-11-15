@@ -19,7 +19,7 @@ import { SettingsModal } from './modals/SettingsModal.js';
 import { TelemetryModal } from './modals/TelemetryModal.js';
 
 /**
- * Fast and responsive tap/click binder (eliminates 300ms touch delay and dropped clicks).
+ * Fast and responsive tap/click binder (eliminates touch delay and dropped clicks).
  */
 export function bindFastTap(idOrEl, handler) {
   const el = typeof idOrEl === 'string' ? document.getElementById(idOrEl) : idOrEl;
@@ -27,7 +27,7 @@ export function bindFastTap(idOrEl, handler) {
   let lastTrigger = 0;
   const trigger = (e) => {
     const now = Date.now();
-    if (now - lastTrigger < 300) return;
+    if (now - lastTrigger < 60) return;
     lastTrigger = now;
     handler(e);
   };
@@ -72,7 +72,8 @@ export class Hud {
       sfxVolume: this.soundFx?.sfxVolume ?? (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_sfx_vol') || '0.8') : 0.8),
       bgmVolume: this.soundFx?.bgmVolume ?? (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_bgm_vol') || '0.7') : 0.7),
       viewportFrame: (typeof localStorage !== 'undefined' ? localStorage.getItem('interrun_viewport_frame') : null) || 'full',
-      renderScale: (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_render_scale') || '1.0') : 1.0)
+      renderScale: (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_render_scale') || '1.0') : 1.0),
+      speedMultiplier: (typeof localStorage !== 'undefined' ? parseFloat(localStorage.getItem('interrun_speed_mult') || '1.0') : 1.0) || 1.0
     };
 
     // Sub-components
@@ -103,6 +104,10 @@ export class Hud {
 
     this._render();
     this._bindElements();
+  }
+
+  get settings() {
+    return this._settings;
   }
 
   // Debug stage and speed accessors
@@ -236,6 +241,9 @@ export class Hud {
     this.elCamFps = document.getElementById('hud-cam-fps');
     this.elCvPanel = document.getElementById('hud-cv-panel');
     this.elLowLightBadge = document.getElementById('hud-cam-lowlight-badge');
+    this.elDdaPanel = document.getElementById('hud-dda-panel');
+    this.elDdaState = document.getElementById('hud-dda-state');
+    this.elDdaIcon = document.getElementById('hud-dda-icon');
     this.elControlHint = document.getElementById('control-hint');
     this.elSpeedBar = document.getElementById('speed-bar-fill');
     this.elLivesRow = document.getElementById('lives-row');
@@ -246,6 +254,24 @@ export class Hud {
     this.elDeathDist = document.getElementById('death-dist');
     this.elDeathBest = document.getElementById('death-best');
     this.elDeathCoins = document.getElementById('death-coins');
+
+    this.elDeathAiCard = document.getElementById('death-ai-card');
+    this.elDeathAiPersona = document.getElementById('death-ai-persona');
+    this.elDeathAiFlowVal = document.getElementById('death-ai-flow-val');
+    this.elDeathAiFlowDesc = document.getElementById('death-ai-flow-desc');
+    this.elDeathAiTtcVal = document.getElementById('death-ai-ttc-val');
+    this.elDeathAiTtcBadge = document.getElementById('death-ai-ttc-badge');
+    this.elDeathAiAssistsVal = document.getElementById('death-ai-assists-val');
+    this.elDeathAiKinVal = document.getElementById('death-ai-kin-val');
+    this.elDeathAiKinStyle = document.getElementById('death-ai-kin-style');
+
+    this.elDeathActDist = document.getElementById('death-act-dist');
+    this.elDeathActNearmiss = document.getElementById('death-act-nearmiss');
+    this.elDeathActButtons = document.getElementById('death-act-buttons');
+    this.elDeathActHands = document.getElementById('death-act-hands');
+    this.elDeathActHeadTotal = document.getElementById('death-act-head-total');
+    this.elDeathActHeadLr = document.getElementById('death-act-head-lr');
+    this.elDeathActHeadUd = document.getElementById('death-act-head-ud');
 
     this.elStageTransition = document.getElementById('stage-transition');
     this.elStageTitle = document.getElementById('stage-title');
@@ -266,6 +292,7 @@ export class Hud {
     this.elCountdownBanner = document.getElementById('stage-countdown-banner');
     this.elWebcamPip = document.getElementById('webcam-pip');
     this.elWebcamCanvas = document.getElementById('webcam-canvas');
+    this.elBtnToggleCam = document.getElementById('btn-toggle-cam');
     if (this.visionManager && this.elWebcamCanvas) {
       this.visionManager.setPreviewCanvas(this.elWebcamCanvas);
     }
@@ -333,22 +360,44 @@ export class Hud {
     // Start game
     bindFastTap('btn-play', () => {
       this.soundFx?.init();
-      if (this.onStartGame) this.onStartGame(0, false, false);
+      if (this.onStartGame) this.onStartGame(0, false, false, this._settings.speedMultiplier || 1.0);
     });
+
+    // Menu initial speed slider
+    const menuSliderSpeed = document.getElementById('menu-slider-speed');
+    const menuSpeedVal = document.getElementById('menu-speed-val');
+    if (menuSliderSpeed) {
+      menuSliderSpeed.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        this._settings.speedMultiplier = val;
+        if (menuSpeedVal) menuSpeedVal.textContent = `${val.toFixed(2)}x`;
+        const modalSlider = document.getElementById('slider-speed-mult');
+        const modalVal = document.getElementById('settings-speed-val');
+        if (modalSlider) modalSlider.value = val;
+        if (modalVal) modalVal.textContent = `${val.toFixed(2)}x`;
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('interrun_speed_mult', String(val));
+        }
+        if (this.onApplySettings) {
+          this.onApplySettings(this._settings);
+        }
+      });
+    }
 
     // Menu stage chips
     document.querySelectorAll('.menu-stages .stage-chip').forEach(chip => {
       bindFastTap(chip, () => {
         const stage = parseInt(chip.getAttribute('data-stage') || '0', 10);
         this.soundFx?.init();
-        if (this.onStartDebug) this.onStartDebug(stage, true, this._isGodMode, 1.0);
-        else if (this.onStartGame) this.onStartGame(stage, true, false);
+        const speed = this._settings.speedMultiplier || 1.0;
+        if (this.onStartDebug) this.onStartDebug(stage, true, this._isGodMode, speed);
+        else if (this.onStartGame) this.onStartGame(stage, true, false, speed);
       });
     });
 
     // Restart game
     bindFastTap('btn-restart', () => {
-      if (this.onRestartGame) this.onRestartGame();
+      if (this.onRestartGame) this.onRestartGame(this._settings.speedMultiplier || 1.0);
     });
 
     // Skins modal
@@ -643,12 +692,156 @@ export class Hud {
     this.elDeath?.classList.remove('show');
   }
 
-  showGameOver(distance, bestScore, coins) {
+  showGameOver(distance, bestScore, coins, aiSummary = null) {
     this.hideTransitionCountdown();
     if (this.elDeathDist) this.elDeathDist.textContent = Math.floor(distance);
     if (this.elDeathBest) this.elDeathBest.textContent = Math.floor(bestScore);
     if (this.elDeathCoins) this.elDeathCoins.textContent = coins;
+
+    if (this.elDeathAiCard) {
+      if (aiSummary?.actions || aiSummary?.dda || aiSummary?.kinematics) {
+        this.elDeathAiCard.classList.remove('hidden');
+        this._renderDeathAiSummary(aiSummary, distance);
+      } else {
+        this.elDeathAiCard.classList.add('hidden');
+      }
+    }
+
     this.elDeath?.classList.add('show');
+  }
+
+  _renderDeathAiSummary(aiSummary, distance = 0) {
+    const act = aiSummary?.actions || {};
+    const dda = aiSummary?.dda;
+    const kin = aiSummary?.kinematics;
+
+    // ── 1. Physical Action Counters ──
+    const distInt = Math.floor(distance || 0);
+    if (this.elDeathActDist) {
+      this.elDeathActDist.textContent = `${distInt} м`;
+    }
+
+    const nearMisses = act.nearMisses ?? dda?.playStyle?.nearMissCount ?? kin?.nearMisses ?? 0;
+    if (this.elDeathActNearmiss) {
+      this.elDeathActNearmiss.textContent = String(nearMisses);
+      this.elDeathActNearmiss.style.color = nearMisses > 0 ? '#ff3d5e' : 'rgba(255,255,255,0.7)';
+    }
+
+    const buttons = act.buttonPresses ?? 0;
+    if (this.elDeathActButtons) {
+      this.elDeathActButtons.textContent = String(buttons);
+      this.elDeathActButtons.style.color = buttons > 0 ? '#00ff88' : 'rgba(255,255,255,0.7)';
+    }
+
+    const hands = act.handGestures ?? 0;
+    if (this.elDeathActHands) {
+      this.elDeathActHands.textContent = String(hands);
+      this.elDeathActHands.style.color = hands > 0 ? '#ffd700' : 'rgba(255,255,255,0.7)';
+    }
+
+    const headLr = act.headTiltsLeftRight ?? 0;
+    const headUd = act.headTiltsUpDown ?? 0;
+    const headTotal = act.totalHeadTilts ?? (headLr + headUd);
+    if (this.elDeathActHeadTotal) {
+      this.elDeathActHeadTotal.textContent = String(headTotal);
+      this.elDeathActHeadTotal.style.color = headTotal > 0 ? '#a89cff' : 'rgba(255,255,255,0.7)';
+    }
+    if (this.elDeathActHeadLr) {
+      this.elDeathActHeadLr.textContent = String(headLr);
+    }
+    if (this.elDeathActHeadUd) {
+      this.elDeathActHeadUd.textContent = String(headUd);
+    }
+
+    // ── 2. Header Action Badge / Persona ──
+    const totalActions = act.totalActions ?? (buttons + headTotal + hands);
+    if (this.elDeathAiPersona) {
+      if (totalActions > 0) {
+        const badgeWord = i18n?.t?.('death.actions.total_badge') || '{n} дій';
+        this.elDeathAiPersona.textContent = `⚡ ${badgeWord.replace('{n}', totalActions)}`;
+        this.elDeathAiPersona.style.color = '#00ff88';
+        this.elDeathAiPersona.style.background = 'rgba(0, 255, 136, 0.12)';
+        this.elDeathAiPersona.style.borderColor = 'rgba(0, 255, 136, 0.3)';
+      } else if (dda?.playStyle?.personaTitle) {
+        this.elDeathAiPersona.textContent = dda.playStyle.personaTitle;
+      }
+    }
+
+    // ── 3. Backwards Compatibility for DDA & Kinematic Elements ──
+    if (dda) {
+      const totalTime = (dda.timeInAssistSec || 0) + (dda.timeInOptimalSec || 0) + (dda.timeInChallengeSec || 0);
+      let flowPct = 100;
+      if (totalTime > 0) {
+        flowPct = Math.round(((dda.timeInOptimalSec || 0) / totalTime) * 100);
+      }
+      if (this.elDeathAiFlowVal) {
+        this.elDeathAiFlowVal.textContent = `${flowPct}%`;
+        this.elDeathAiFlowVal.style.color = flowPct >= 65 ? '#00ff88' : flowPct >= 40 ? '#ffd700' : '#ff3d5e';
+      }
+
+      const avgTtc = dda.playStyle?.avgTtcMs || (dda.recentSamples > 0 && dda.averageScore ? Math.round(dda.averageScore * 650) : null);
+      if (this.elDeathAiTtcVal && this.elDeathAiTtcBadge) {
+        if (avgTtc && avgTtc > 0) {
+          this.elDeathAiTtcVal.textContent = `${avgTtc} ms`;
+          if (avgTtc < 350) {
+            this.elDeathAiTtcVal.style.color = '#ff3d5e';
+            this.elDeathAiTtcBadge.textContent = i18n?.t?.('death.ai.nearmiss') || 'Near-Miss 🔥';
+          } else if (avgTtc <= 700) {
+            this.elDeathAiTtcVal.style.color = '#00ff88';
+            this.elDeathAiTtcBadge.textContent = i18n?.t?.('death.ai.balanced') || 'Balanced ⚖️';
+          } else {
+            this.elDeathAiTtcVal.style.color = '#4cc9f0';
+            this.elDeathAiTtcBadge.textContent = i18n?.t?.('death.ai.safe') || 'Safe 🛡️';
+          }
+        } else {
+          this.elDeathAiTtcVal.textContent = '—';
+          this.elDeathAiTtcBadge.textContent = i18n?.t?.('death.ai.calibrating') || 'Calibrating...';
+        }
+      }
+
+      const assists = dda.totalCollisions ?? 0;
+      if (this.elDeathAiAssistsVal) {
+        this.elDeathAiAssistsVal.textContent = String(assists);
+      }
+
+      if (this.elDeathAiPersona && (!totalActions || totalActions === 0)) {
+        const playStyle = dda.playStyle;
+        if (playStyle && playStyle.sampleCount >= 2) {
+          let color = '#00ff88';
+          let bg = 'rgba(0, 255, 136, 0.12)';
+          let border = 'rgba(0, 255, 136, 0.3)';
+          if (playStyle.archetype === 'risk_taker') {
+            color = '#ff3d5e';
+            bg = 'rgba(255, 61, 94, 0.12)';
+            border = 'rgba(255, 61, 94, 0.3)';
+          } else if (playStyle.archetype === 'cautious') {
+            color = '#4cc9f0';
+            bg = 'rgba(76, 201, 240, 0.12)';
+            border = 'rgba(76, 201, 240, 0.3)';
+          } else if (playStyle.archetype === 'variable') {
+            color = '#ffd700';
+            bg = 'rgba(255, 215, 0, 0.12)';
+            border = 'rgba(255, 215, 0, 0.3)';
+          }
+          this.elDeathAiPersona.textContent = playStyle.personaTitle || '⚡ Flow Master';
+          this.elDeathAiPersona.style.color = color;
+          this.elDeathAiPersona.style.background = bg;
+          this.elDeathAiPersona.style.borderColor = border;
+        }
+      }
+    }
+
+    if (this.elDeathAiKinVal) {
+      if (kin && (kin.headMeters > 0 || kin.handMeters > 0)) {
+        const headLabel = i18n?.t?.('telemetry.style.head') || 'm head';
+        const handLabel = i18n?.t?.('telemetry.style.hand') || 'm hand';
+        this.elDeathAiKinVal.textContent = `${kin.headMeters}${headLabel} / ${kin.handMeters}${handLabel}`;
+      } else if (dda?.playStyle?.nearMissCount > 0) {
+        this.elDeathAiKinVal.textContent = `🔥 ${dda.playStyle.nearMissCount}`;
+      } else {
+        this.elDeathAiKinVal.textContent = '⌨️ / 👆';
+      }
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -726,6 +919,38 @@ export class Hud {
     }
   }
 
+  updateDDA(metrics) {
+    if (!this.elDdaPanel || !metrics) return;
+    if (!metrics.enabled) {
+      this.elDdaPanel.style.display = 'none';
+      return;
+    }
+    this.elDdaPanel.style.display = 'inline-flex';
+
+    if (this._lastDdaState !== metrics.state) {
+      this._lastDdaState = metrics.state;
+      if (metrics.state === 'assist') {
+        if (this.elDdaIcon) this.elDdaIcon.textContent = '🛡️';
+        if (this.elDdaState) {
+          this.elDdaState.textContent = i18n.t('hud.dda.assist');
+          this.elDdaState.style.color = '#4cc9f0';
+        }
+      } else if (metrics.state === 'challenge') {
+        if (this.elDdaIcon) this.elDdaIcon.textContent = '⚡';
+        if (this.elDdaState) {
+          this.elDdaState.textContent = i18n.t('hud.dda.challenge');
+          this.elDdaState.style.color = '#ffd700';
+        }
+      } else {
+        if (this.elDdaIcon) this.elDdaIcon.textContent = '⚖️';
+        if (this.elDdaState) {
+          this.elDdaState.textContent = i18n.t('hud.dda.optimal');
+          this.elDdaState.style.color = '#00ff88';
+        }
+      }
+    }
+  }
+
   showCvFps(show = true) {
     if (this.elCvPanel) {
       this.elCvPanel.style.display = show ? 'inline-flex' : 'none';
@@ -738,8 +963,21 @@ export class Hud {
     this.elWebcamStatus.style.color = color;
   }
 
-  showWebcamPip(show = true) {
+  showWebcamPip(show = true, forcedStage = null) {
     if (!this.elWebcamPip) return;
+    const stageToCheck = (forcedStage !== null && forcedStage !== undefined)
+      ? forcedStage
+      : (this._lastStageNumber !== undefined && this._lastStageNumber !== null)
+        ? this._lastStageNumber
+        : (this._selectedDebugStage !== undefined && this._selectedDebugStage !== null)
+          ? this._selectedDebugStage
+          : null;
+
+    const isCvStage = (stageToCheck !== null) ? stageToCheck >= 2 : true;
+    if (!isCvStage && show) {
+      this.elWebcamPip.classList.add('hidden');
+      return;
+    }
     if (show) this.elWebcamPip.classList.remove('hidden');
     else this.elWebcamPip.classList.add('hidden');
   }
@@ -784,12 +1022,23 @@ export class Hud {
   }
 
   announceStage(stageNumber, isLocked = false, cycle = null) {
+    this._lastStageNumber = stageNumber;
+    this._selectedDebugStage = stageNumber;
+    const isCvStage = stageNumber >= 2;
+    if (!isCvStage) {
+      this.showWebcamPip(false, stageNumber);
+      this.elBtnToggleCam?.classList.add('hidden');
+    } else {
+      this.elBtnToggleCam?.classList.remove('hidden');
+      if (this.visionManager?.settings?.pipMode !== 'off') {
+        this.showWebcamPip(true, stageNumber);
+      }
+    }
     const currentDist = (this.elDist ? parseInt(this.elDist.textContent || '0', 10) : 0);
     this.transitionBanner.announceStage(stageNumber, isLocked, cycle, currentDist, this.soundFx);
     this._lastStageNumber = this.transitionBanner._lastStageNumber;
     this._lastIsLocked = this.transitionBanner._lastIsLocked;
     this._lastCycle = this.transitionBanner._lastCycle;
-    this._selectedDebugStage = stageNumber;
     this._updateDebugStageButtons();
   }
 
@@ -797,8 +1046,8 @@ export class Hud {
     this.transitionBanner.showTransitionCountdown(stageNumber, totalDuration, remainingSec, cycle);
   }
 
-  updateTransitionCountdown(remainingSec, totalDuration = 3.5) {
-    this.transitionBanner.updateTransitionCountdown(remainingSec, totalDuration);
+  updateTransitionCountdown(remainingSec, totalDuration = 3.5, isWaiting = false, stageNumber = 0) {
+    this.transitionBanner.updateTransitionCountdown(remainingSec, totalDuration, isWaiting, stageNumber);
   }
 
   hideTransitionCountdown() {

@@ -52,8 +52,8 @@ let _resizeKey    = null;
 function resizeBitmap(bitmap, resolution) {
   const preset = CV_RESOLUTION_PRESETS[resolution] || CV_RESOLUTION_PRESETS.high;
 
-  const srcW = bitmap.width  || _nativeW;
-  const srcH = bitmap.height || _nativeH;
+  const srcW = bitmap.width  || (typeof bitmap.displayWidth === 'number' ? bitmap.displayWidth : _nativeW);
+  const srcH = bitmap.height || (typeof bitmap.displayHeight === 'number' ? bitmap.displayHeight : _nativeH);
   const scale = Math.min(preset.width / srcW, preset.height / srcH);
 
   if (scale >= 1) return bitmap;
@@ -71,7 +71,9 @@ function resizeBitmap(bitmap, resolution) {
     }
     _resizeCtx.drawImage(bitmap, 0, 0, targetW, targetH);
     const resized = _resizeCanvas.transferToImageBitmap();
-    bitmap.close();
+    if (typeof bitmap.close === 'function') {
+      bitmap.close();
+    }
     return resized;
   } catch (canvasErr) {
     console.warn('[VisionWorker] OffscreenCanvas resize fallback:', canvasErr);
@@ -79,10 +81,21 @@ function resizeBitmap(bitmap, resolution) {
   }
 }
 
-function resetCalibration() {
-  resetZoneCalibration();
-  resetFingerCalibration();
-  resetSwipeCalibration();
+function resetCalibration(mode = null) {
+  if (mode === 'zone' || mode === 'face') {
+    resetZoneCalibration();
+  } else if (mode === 'handzone') {
+    resetZoneCalibration();
+  } else if (mode === 'fingergesture') {
+    resetFingerCalibration();
+  } else if (mode === 'handswipe') {
+    resetSwipeCalibration();
+  } else if (!mode) {
+    // Mode is null or unspecified: clean baseline reset for all
+    resetZoneCalibration();
+    resetFingerCalibration();
+    resetSwipeCalibration();
+  }
 }
 
 /** Builds the base state object with active CV stage fields */
@@ -137,7 +150,13 @@ self.onmessage = async (e) => {
     }
 
     if (data.type === 'setMode') {
-      await ensureModel(data.mode, resetCalibration);
+      await ensureModel(data.mode, () => resetCalibration(data.mode));
+      return;
+    }
+
+    if (data.type === 'recalibrate') {
+      const mode = data.mode || currentMode;
+      resetCalibration(mode);
       return;
     }
 
@@ -148,8 +167,7 @@ self.onmessage = async (e) => {
         return;
       }
 
-      const isVideoFrame = typeof VideoFrame !== 'undefined' && rawFrame instanceof VideoFrame;
-      const frame = isVideoFrame ? rawFrame : resizeBitmap(rawFrame, resolution);
+      const frame = resizeBitmap(rawFrame, resolution);
 
       try {
         let state = null;

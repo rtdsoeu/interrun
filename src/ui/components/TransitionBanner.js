@@ -111,29 +111,61 @@ export class TransitionBanner {
     const badge = document.getElementById('transition-next-badge');
     const hint = document.getElementById('transition-next-hint');
 
+    this._currentStageNumber = stageNumber;
+    this._currentHintHtml = stageHints[stageNumber] || '';
+
     const loopSuffix = cycle > 0 ? ` [${this._t('stage.loop')} ${cycle + 1}]` : '';
     if (badge) badge.textContent = (stageNames[stageNumber] || `STAGE ${stageNumber}`) + loopSuffix;
-    if (hint) hint.innerHTML = stageHints[stageNumber] || '';
+    if (hint) hint.innerHTML = this._currentHintHtml;
 
     banner.classList.remove('hidden');
     this.updateTransitionCountdown(remainingSec, totalDuration);
   }
 
-  updateTransitionCountdown(remainingSec, totalDuration = 3.5) {
+  updateTransitionCountdown(remainingSec, totalDuration = 3.5, isWaiting = false, stageNumber = null) {
+    if (stageNumber !== null && stageNumber !== undefined) {
+      this._currentStageNumber = stageNumber;
+    }
     const numEl = document.getElementById('transition-timer-num');
     const circle = document.getElementById('transition-timer-circle');
+    const hint = document.getElementById('transition-next-hint');
 
     const rem = Math.max(0, remainingSec);
     if (numEl) {
-      numEl.textContent = rem > 0.05 ? rem.toFixed(1) : 'GO!';
-      numEl.style.color = rem <= 1.0 ? '#00ff88' : '#00e5ff';
+      if (isWaiting) {
+        numEl.textContent = '⏳';
+        numEl.style.color = '#ffd700';
+      } else {
+        numEl.textContent = rem > 0.05 ? rem.toFixed(1) : 'GO!';
+        numEl.style.color = rem <= 1.0 ? '#00ff88' : '#00e5ff';
+      }
+    }
+
+    if (hint) {
+      if (isWaiting) {
+        let waitKey;
+        if (this._currentStageNumber === 2) {
+          waitKey = 'transition.waiting.face';
+        } else if (this._currentStageNumber === 3) {
+          waitKey = 'transition.waiting.hand';
+        } else if (this._currentStageNumber === 4) {
+          waitKey = 'transition.waiting.gestures';
+        } else if (this._currentStageNumber === 5) {
+          waitKey = 'transition.waiting.swipes';
+        } else {
+          waitKey = 'transition.waiting.ready';
+        }
+        hint.innerHTML = `<span style="color:#ffd700; font-weight:700;">${this._t(waitKey)}</span>`;
+      } else if (this._currentHintHtml) {
+        hint.innerHTML = this._currentHintHtml;
+      }
     }
 
     if (circle && totalDuration > 0) {
-      const progress = Math.max(0, Math.min(1, rem / totalDuration));
+      const progress = isWaiting ? 0.90 : Math.max(0, Math.min(1, rem / totalDuration));
       const offset = 100 * (1 - progress);
       circle.style.strokeDashoffset = `${offset}`;
-      circle.style.stroke = rem <= 1.0 ? '#00ff88' : '#00e5ff';
+      circle.style.stroke = isWaiting ? '#ffd700' : (rem <= 1.0 ? '#00ff88' : '#00e5ff');
     }
   }
 

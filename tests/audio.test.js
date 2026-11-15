@@ -205,6 +205,12 @@ describe('SoundFx integration with MusicPlayer', () => {
     expect(() => soundFx.playHazardDrop()).not.toThrow();
   });
 
+  it('exposes playNearMiss without throwing when context is unavailable or muted', () => {
+    expect(() => soundFx.playNearMiss()).not.toThrow();
+    soundFx.setMuted(true);
+    expect(() => soundFx.playNearMiss()).not.toThrow();
+  });
+
   it('mutes both sfx and bgm on setMuted', () => {
     soundFx.setMuted(true);
     expect(soundFx.muted).toBe(true);

@@ -56,14 +56,20 @@ export class OneEuroFilter {
     const dt = Math.max((timestamp - this.tPrev) / 1000.0, 1e-4);
     this.tPrev = timestamp;
 
+    // For low-FPS cameras (dt >= 0.065s, i.e. <= 15 FPS), adaptively boost velocity sensitivity
+    // to eliminate sluggish low-pass lag and deliver instantaneous reaction on initial movement
+    const isLowFps = dt >= 0.065;
+    const effectiveDCutoff = isLowFps ? Math.max(this.dCutoff, 2.5) : this.dCutoff;
+    const effectiveBeta = isLowFps ? this.beta * 2.2 : this.beta;
+
     // 1. Estimate and filter the rate of change (derivative / velocity)
     const dx = (x - this.xPrev) / dt;
-    const alphaD = this._computeAlpha(this.dCutoff, dt);
+    const alphaD = this._computeAlpha(effectiveDCutoff, dt);
     const dxHat = alphaD * dx + (1.0 - alphaD) * this.dxPrev;
     this.dxPrev = dxHat;
 
     // 2. Compute adaptive cutoff frequency based on filtered speed
-    const cutoff = this.minCutoff + this.beta * Math.abs(dxHat);
+    const cutoff = this.minCutoff + effectiveBeta * Math.abs(dxHat);
 
     // 3. Filter the main signal with the adaptive cutoff
     const alpha = this._computeAlpha(cutoff, dt);

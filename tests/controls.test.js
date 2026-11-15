@@ -287,6 +287,100 @@ describe('ControlManager 6-Stage Registry', () => {
       expect(cm.stage).toBe(s);
     }
   });
+
+  it('KeyboardControl allows instant left/right spamming without latch lockouts', () => {
+    const kb = new KeyboardControl();
+    kb.enable();
+
+    // 1. Press A -> laneDelta -1
+    kb._keyDown({ code: 'KeyA' });
+    expect(kb.consume().laneDelta).toBe(-1);
+
+    // 2. Press D while A is still held down (rollover spam) -> laneDelta +1 immediately!
+    kb._keyDown({ code: 'KeyD' });
+    expect(kb.consume().laneDelta).toBe(1);
+
+    // 3. Release A -> D is still held, then press A again -> laneDelta -1 immediately!
+    kb._keyUp({ code: 'KeyA' });
+    kb._keyDown({ code: 'KeyA' });
+    expect(kb.consume().laneDelta).toBe(-1);
+
+    kb.disable();
+  });
+
+  it('KeyboardControl triggers jump immediately on Space/KeyW with zero cooldown delay', () => {
+    const kb = new KeyboardControl();
+    kb.enable();
+
+    kb._keyDown({ code: 'Space', preventDefault: () => {} });
+    expect(kb.consume().jump).toBe(true);
+
+    kb._keyUp({ code: 'Space' });
+    kb._keyDown({ code: 'KeyW', preventDefault: () => {} });
+    expect(kb.consume().jump).toBe(true);
+
+    kb.disable();
+  });
+
+  it('PointerControl triggers jump on quick tap without movement dead-zone', () => {
+    const ptr = new PointerControl();
+    ptr.enable();
+
+    // Tap with subtle cursor jitter (< 18px)
+    ptr._handleDown(100, 100, 0);
+    ptr._handleUp(105, 107, 0);
+    expect(ptr.consume().jump).toBe(true);
+
+    ptr.disable();
+  });
+
+  it('PointerControl registers short flick lane change and jump on pointer up', () => {
+    const ptr = new PointerControl();
+    ptr.enable();
+
+    // Fast flick right released before extra move event fires
+    ptr._handleDown(100, 100, 0);
+    ptr._handleUp(121, 102, 0);
+    expect(ptr.consume().laneDelta).toBe(1);
+
+    // Fast flick up released on pointer up
+    ptr._handleDown(100, 100, 0);
+    ptr._handleUp(100, 79, 0);
+    expect(ptr.consume().jump).toBe(true);
+
+    ptr.disable();
+  });
+
+  it('triggers onKeyPress on KeyboardControl and onPointerAction on PointerControl', () => {
+    const kb = new KeyboardControl();
+    kb.enable();
+    const pressedKeys = [];
+    kb.onKeyPress = (code) => pressedKeys.push(code);
+
+    kb._keyDown({ code: 'KeyA' });
+    kb._keyDown({ code: 'KeyA' }); // repeat should be ignored
+    kb._keyUp({ code: 'KeyA' });
+    kb._keyDown({ code: 'KeyW', preventDefault: () => {} });
+
+    expect(pressedKeys).toEqual(['KeyA', 'KeyW']);
+    kb.disable();
+
+    const ptr = new PointerControl();
+    ptr.enable();
+    const pointerActions = [];
+    ptr.onPointerAction = (act) => pointerActions.push(act);
+
+    // Swipe right
+    ptr._handleDown(50, 50, 0);
+    ptr._handleMove(90, 50);
+    // Tap jump
+    ptr._handleDown(200, 200, 0);
+    ptr._handleUp(200, 200, 0);
+
+    expect(pointerActions).toContain('swipe_right');
+    expect(pointerActions).toContain('tap_jump');
+    ptr.disable();
+  });
 });
 
 describe('FaceZoneControl & HandZoneControl (Stages 2 & 3: 3×3 Grid)', () => {
@@ -309,6 +403,10 @@ describe('FaceZoneControl & HandZoneControl (Stages 2 & 3: 3×3 Grid)', () => {
     zc.update(0.016);
     expect(zc.consume().targetLane).toBe(-1);
 
+    // Verify onZoneAction dispatches for zone transitions
+    const zoneEvents = [];
+    zc.onZoneAction = (evt) => zoneEvents.push(evt);
+
     // C + top -> Center lane + Jump
     mockVision.currentState.zoneCol = 'C';
     mockVision.currentState.zoneRow = 'top';
@@ -324,6 +422,12 @@ describe('FaceZoneControl & HandZoneControl (Stages 2 & 3: 3×3 Grid)', () => {
     const botRes = zc.consume();
     expect(botRes.targetLane).toBe(1);
     expect(botRes.isDucking).toBe(true);
+
+    expect(zoneEvents).toEqual([
+      { axis: 'ud', dir: 'top', mode: 'zone' },
+      { axis: 'lr', dir: 'R', mode: 'zone' },
+      { axis: 'ud', dir: 'bot', mode: 'zone' }
+    ]);
 
     // Face leaves frame -> isDucking must immediately reset to false
     mockVision.currentState.zoneSource = null;
@@ -530,6 +634,31 @@ describe('VisionManager Performance Settings', () => {
     expect(vm.settings.resolution).toBe('eco');
     expect(vm.settings.targetFps).toBe(20);
     expect(vm.settings.pipMode).toBe('minimal');
+  });
+
+  it('correctly tracks hasValidDetection across stages 0..5', async () => {
+    const { VisionManager } = await import('../src/vision/VisionManager.js');
+    const vm = new VisionManager();
+
+    // Non-CV stages 0 and 1 are always ready
+    expect(vm.hasValidDetection(0)).toBe(true);
+    expect(vm.hasValidDetection(1)).toBe(true);
+
+    // CV stage 2 requires >= 2 detected frames
+    expect(vm.hasValidDetection(2)).toBe(false);
+
+    // Simulate 1 detection frame
+    vm._cvDetectionCount = 1;
+    expect(vm.hasValidDetection(2)).toBe(false);
+
+    // Simulate 2nd detection frame
+    vm._cvDetectionCount = 2;
+    expect(vm.hasValidDetection(2)).toBe(true);
+    expect(vm.hasValidDetection(3)).toBe(true);
+
+    // Reset mode resets detection count
+    vm.setMode('handzone');
+    expect(vm.hasValidDetection(3)).toBe(false);
   });
 });
 

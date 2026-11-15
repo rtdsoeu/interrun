@@ -242,6 +242,29 @@
     bottom: calc(95px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
+  .death-ai-card {
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    gap: 6px;
+    width: 95%;
+  }
+  .death-actions-grid,
+  .death-ai-grid {
+    gap: 6px 8px;
+  }
+  .death-action-val,
+  .death-ai-val {
+    font-size: 13px;
+  }
+  .death-action-label,
+  .death-ai-label {
+    font-size: 10px;
+  }
+  .head-tilt-chip {
+    font-size: 9px;
+    padding: 1px 5px;
+  }
+
   .death-buttons {
     flex-direction: column;
     width: 100%;
@@ -431,6 +454,29 @@
   }
   body:has(#touch-dpad) #hud-bottom-left {
     bottom: calc(95px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .death-ai-card {
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    gap: 6px;
+    width: 95%;
+  }
+  .death-actions-grid,
+  .death-ai-grid {
+    gap: 6px 8px;
+  }
+  .death-action-val,
+  .death-ai-val {
+    font-size: 13px;
+  }
+  .death-action-label,
+  .death-ai-label {
+    font-size: 10px;
+  }
+  .head-tilt-chip {
+    font-size: 9px;
+    padding: 1px 5px;
   }
 
   .death-buttons {

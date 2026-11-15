@@ -15,41 +15,41 @@ export const BENCHMARK_CLASSES = {
 
 export const BENCHMARK_ICONS = {
   stage0: {
-    key_left: '◀ [A] / [Left] (Вліво)',
-    key_right: '▶ [D] / [Right] (Вправо)',
+    key_left: '◀ [A] / [Left] (Ліворуч)',
+    key_right: '▶ [D] / [Right] (Праворуч)',
     key_jump: '▲ [W] / [Space] (Стрибок)',
     key_duck: '▼ [S] / [Down] (Підкат)'
   },
   stage1: {
-    swipe_left: '👈 Свайп Вліво',
-    swipe_right: '👉 Свайп Вправо',
+    swipe_left: '👈 Свайп Ліворуч',
+    swipe_right: '👉 Свайп Праворуч',
     swipe_up: '👆 Свайп Вгору (Стрибок)',
-    swipe_down: '👇 Свайп Вниз (Присід)'
+    swipe_down: '👇 Свайп Вниз (Підкат)'
   },
   stage2: {
-    face_left: '👤 Обличчя Вліво',
-    face_center: '👤 Обличчя в Центрі',
-    face_right: '👤 Обличчя Вправо',
-    face_jump: '👤 Обличчя Вгору (Стрибок)',
-    face_slide: '👤 Обличчя Вниз (Присід)'
+    face_left: '👤 Голова Ліворуч',
+    face_center: '👤 Голова в Центрі',
+    face_right: '👤 Голова Праворуч',
+    face_jump: '👤 Голова Вгору (Стрибок)',
+    face_slide: '👤 Голова Вниз (Підкат)'
   },
   stage3: {
-    hand_left: '✋ Долоня Вліво',
+    hand_left: '✋ Долоня Ліворуч',
     hand_center: '✋ Долоня в Центрі',
-    hand_right: '✋ Долоня Вправо',
+    hand_right: '✋ Долоня Праворуч',
     hand_jump: '✋ Долоня Вгору (Стрибок)',
-    hand_slide: '✋ Долоня Вниз (Присід)'
+    hand_slide: '✋ Долоня Вниз (Підкат)'
   },
   stage4: {
-    one_finger: '☝️ 1 Палець (Ліво)',
+    one_finger: '☝️ 1 Палець (Ліворуч)',
     two_fingers: '✌️ 2 Пальці (Центр)',
-    three_fingers: '🤟 3 Пальці (Право)',
+    three_fingers: '🤟 3 Пальці (Праворуч)',
     palm: '🖐️ Відкрита долоня (Стрибок)',
     fist: '✊ Кулак (Підкат)'
   },
   stage5: {
-    swipe_left: '👈 Змах Вліво',
-    swipe_right: '👉 Змах Вправо',
+    swipe_left: '👈 Змах Ліворуч',
+    swipe_right: '👉 Змах Праворуч',
     swipe_up: '👆 Змах Вгору',
     swipe_down: '👇 Змах Вниз'
   }
@@ -57,30 +57,30 @@ export const BENCHMARK_ICONS = {
 
 export const BENCHMARK_BUTTON_LABELS = {
   stage0: {
-    key_left: '◀ Вліво [A]',
-    key_right: '▶ Вправо [D]',
+    key_left: '◀ Ліворуч [A]',
+    key_right: '▶ Праворуч [D]',
     key_jump: '▲ Стрибок [W]',
     key_duck: '▼ Підкат [S]'
   },
   stage1: {
-    swipe_left: '👈 Свайп Вліво',
-    swipe_right: '👉 Свайп Вправо',
+    swipe_left: '👈 Свайп Ліворуч',
+    swipe_right: '👉 Свайп Праворуч',
     swipe_up: '👆 Свайп Вгору',
     swipe_down: '👇 Свайп Вниз'
   },
   stage2: {
-    face_left: '👤 Вліво',
+    face_left: '👤 Ліворуч',
     face_center: '👤 Центр',
-    face_right: '👤 Вправо',
+    face_right: '👤 Праворуч',
     face_jump: '👤 Стрибок',
-    face_slide: '👤 Присід'
+    face_slide: '👤 Підкат'
   },
   stage3: {
-    hand_left: '✋ Вліво',
+    hand_left: '✋ Ліворуч',
     hand_center: '✋ Центр',
-    hand_right: '✋ Вправо',
+    hand_right: '✋ Праворуч',
     hand_jump: '✋ Стрибок',
-    hand_slide: '✋ Присід'
+    hand_slide: '✋ Підкат'
   },
   stage4: {
     fist: '✊ Кулак',
@@ -90,8 +90,8 @@ export const BENCHMARK_BUTTON_LABELS = {
     three_fingers: '🤟 3 пальці'
   },
   stage5: {
-    swipe_left: '👈 Змах Вліво',
-    swipe_right: '👉 Змах Вправо',
+    swipe_left: '👈 Змах Ліворуч',
+    swipe_right: '👉 Змах Праворуч',
     swipe_up: '👆 Змах Вгору',
     swipe_down: '👇 Змах Вниз'
   }
@@ -100,7 +100,7 @@ export const BENCHMARK_BUTTON_LABELS = {
 export const BENCHMARK_HINTS = {
   stage0: 'Натискайте клавіші на клавіатурі під час тесту (A/D, W, S, стрілки)',
   stage1: 'Свайпайте мишею або пальцем по картці в заданому напрямку',
-  stage2: 'Нахиляйте голову/обличчя в сітці 3×3 перед вебкамерою',
+  stage2: 'Рухайте головою/обличчям у сітці 3×3 перед вебкамерою',
   stage3: 'Переміщуйте долоню в сітці 3×3 перед вебкамерою',
   stage4: 'Показуйте пальці, долоню або кулак перед вебкамерою',
   stage5: 'Робіть швидкі змахи рукою в повітрі перед вебкамерою'
@@ -122,7 +122,14 @@ export function getBenchmarkClasses(stageKey) {
 }
 
 export function getBenchmarkIcons(stageKey) {
-  return BENCHMARK_ICONS[stageKey] || BENCHMARK_ICONS.stage4;
+  const baseIcons = BENCHMARK_ICONS[stageKey] || BENCHMARK_ICONS.stage4;
+  const result = {};
+  for (const [key, fallback] of Object.entries(baseIcons)) {
+    const i18nKey = `telemetry.bench.gesture.${key}`;
+    const translated = i18n?.t?.(i18nKey);
+    result[key] = (translated && translated !== i18nKey) ? translated : fallback;
+  }
+  return result;
 }
 
 export function getBenchmarkButtonLabels(stageKey) {
@@ -137,6 +144,9 @@ export function getBenchmarkButtonLabels(stageKey) {
 }
 
 export function getBenchmarkHints(stageKey) {
+  const i18nKey = `telemetry.bench.hint.${stageKey}`;
+  const translated = i18n?.t?.(i18nKey);
+  if (translated && translated !== i18nKey) return translated;
   return BENCHMARK_HINTS[stageKey] || BENCHMARK_HINTS.stage4;
 }
 
