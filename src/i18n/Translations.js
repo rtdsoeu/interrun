@@ -271,7 +271,6 @@ export const translations = {
   'telemetry.stats.runs':          { en: 'Total Runs',                uk: 'Всього забігів' },
   'telemetry.stats.distance':      { en: 'Total Distance',            uk: 'Загальна дистанція' },
   'telemetry.stats.avg_time':      { en: 'Avg Session Time',          uk: 'Сер. час сесії' },
-  'telemetry.stats.fatigue':       { en: 'Fatigue Index (K_fatigue)', uk: 'Коефіцієнт втоми (K_fatigue)' },
   'telemetry.stats.col.stage':     { en: 'Stage',                     uk: 'Етап' },
   'telemetry.stats.col.dist':      { en: 'Distance',                  uk: 'Дистанція' },
   'telemetry.stats.col.errors':    { en: 'Errors / 100m',             uk: 'Помилок / 100м' },

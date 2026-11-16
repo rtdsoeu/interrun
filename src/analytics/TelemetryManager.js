@@ -5,7 +5,6 @@
  * - Live and average Three.js render FPS & MediaPipe CV inference FPS per stage.
  * - Stage-by-stage error rate (collisions per 100 meters).
  * - Player reaction time (time delta between obstacle entering active horizon and player evasive maneuver).
- * - Fatigue index (error rate comparison between early and late parts of session).
  * - Longitudinal learning curve across consecutive play sessions.
  * - Session engagement: duration, distance, coins, retry count, retention timestamps.
  * - JSON and CSV export capabilities.
@@ -96,12 +95,6 @@ export class TelemetryManager {
       currentStage: initialStage,
       stageEnterTime: now,
       stageEnterDistance: 0,
-
-      // Half-session tracking for fatigue index
-      earlyCollisions: 0,
-      lateCollisions: 0,
-      earlyDistance: 0,
-      lateDistance: 0,
 
       // Physical interaction action counters
       actions: {
@@ -420,14 +413,6 @@ export class TelemetryManager {
     if (this.onCollisionRecorded) {
       this.onCollisionRecorded({ stage, distance, obstacleType });
     }
-
-    // Classify into early vs late for fatigue analysis
-    const isEarly = !this.currentSession.totalDistance || distance < (this.currentSession.totalDistance / 2);
-    if (isEarly) {
-      this.currentSession.earlyCollisions++;
-    } else {
-      this.currentSession.lateCollisions++;
-    }
   }
 
   /**
@@ -494,17 +479,6 @@ export class TelemetryManager {
       rec.reactionTimesMs = undefined;
     }
 
-    // Overall Fatigue Index
-    // K_fatigue = (Late Collisions / Late Distance) / (Early Collisions / Early Distance)
-    const halfDist = this.currentSession.totalDistance / 2;
-    if (halfDist > 50) {
-      const earlyRate = this.currentSession.earlyCollisions / (halfDist / 100);
-      const lateRate = this.currentSession.lateCollisions / (halfDist / 100);
-      this.currentSession.fatigueIndex = earlyRate > 0 ? Number((lateRate / earlyRate).toFixed(2)) : (lateRate > 0 ? 2.0 : 1.0);
-    } else {
-      this.currentSession.fatigueIndex = 1.0;
-    }
-
     this._lastSessionActions = this.currentSession.actions ? { ...this.currentSession.actions } : null;
     const completed = {
       ...this.currentSession,
@@ -538,7 +512,6 @@ export class TelemetryManager {
         date: run.timestamp,
         distance: run.totalDistance,
         durationSec: run.durationSec,
-        fatigueIndex: run.fatigueIndex,
         stageErrors
       };
     });
@@ -636,7 +609,6 @@ export class TelemetryManager {
       'TotalDistance_m',
       'Duration_sec',
       'Coins',
-      'FatigueIndex',
       'DDA_State', 'DDA_Score', 'DDA_AssistSec', 'DDA_OptimalSec', 'DDA_ChallengeSec',
       'Stage0_Dist', 'Stage0_ErrorRate', 'Stage0_ReactionMs', 'Stage0_FPS',
       'Stage1_Dist', 'Stage1_ErrorRate', 'Stage1_ReactionMs', 'Stage1_FPS',
@@ -655,7 +627,6 @@ export class TelemetryManager {
         run.totalDistance,
         run.durationSec,
         run.coins,
-        run.fatigueIndex ?? 1.0,
         dda.state || 'optimal',
         dda.averageScore ?? '',
         dda.timeInAssistSec ?? '',

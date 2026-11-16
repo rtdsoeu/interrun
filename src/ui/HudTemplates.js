@@ -630,8 +630,8 @@ export function getHUDHtml(t, i18n, state = {}) {
 
         <!-- TAB 1: Stats & Error Rates -->
         <div id="telem-panel-stats" style="display:flex; flex-direction:column; gap:14px;">
-          <!-- 4 summary KPI cards -->
-          <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px;">
+          <!-- 3 summary KPI cards -->
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px;">
             <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px; text-align:center;">
               <div style="font-size:10px; color:rgba(255,255,255,0.5);" data-i18n="telemetry.stats.runs">${t('telemetry.stats.runs')}</div>
               <div id="telem-kpi-runs" style="font-size:18px; font-weight:800; color:#00e5ff; margin-top:2px;">0</div>
@@ -643,10 +643,6 @@ export function getHUDHtml(t, i18n, state = {}) {
             <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px; text-align:center;">
               <div style="font-size:10px; color:rgba(255,255,255,0.5);" data-i18n="telemetry.stats.avg_time">${t('telemetry.stats.avg_time')}</div>
               <div id="telem-kpi-time" style="font-size:18px; font-weight:800; color:#ffd700; margin-top:2px;">0 s</div>
-            </div>
-            <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px; text-align:center;">
-              <div style="font-size:10px; color:rgba(255,255,255,0.5);" data-i18n="telemetry.stats.fatigue">${t('telemetry.stats.fatigue')}</div>
-              <div id="telem-kpi-fatigue" style="font-size:18px; font-weight:800; color:#ff6b35; margin-top:2px;">1.00</div>
             </div>
           </div>
 

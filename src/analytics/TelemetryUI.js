@@ -18,7 +18,6 @@ export class TelemetryUI {
     const kpiRuns = document.getElementById('telem-kpi-runs');
     const kpiDist = document.getElementById('telem-kpi-dist');
     const kpiTime = document.getElementById('telem-kpi-time');
-    const kpiFatigue = document.getElementById('telem-kpi-fatigue');
     const styleLabel = document.getElementById('telem-style-label');
     const styleReg = document.getElementById('telem-style-reg');
     const styleManeuver = document.getElementById('telem-style-maneuver');
@@ -99,12 +98,10 @@ export class TelemetryUI {
       if (kpiRuns) kpiRuns.textContent = String(metrics.totalRuns);
       if (kpiDist) kpiDist.textContent = `${metrics.totalDistanceKm} km`;
       if (kpiTime) kpiTime.textContent = `${metrics.avgSessionDurationSec} s`;
-      if (kpiFatigue) kpiFatigue.textContent = String(lastRun?.fatigueIndex ?? '1.00');
     } else {
       if (kpiRuns) kpiRuns.textContent = '0';
       if (kpiDist) kpiDist.textContent = '0 m';
       if (kpiTime) kpiTime.textContent = '0 s';
-      if (kpiFatigue) kpiFatigue.textContent = '1.00';
     }
 
     const tbody = document.getElementById('telem-table-stages-body');
