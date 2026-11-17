@@ -91,6 +91,24 @@ describe('TelemetryManager', () => {
     expect(session.stages[0].avgTtcMs).toBe(1000);
   });
 
+  it('does not re-register an already consumed obstacle ID in recordObstacleHorizon', () => {
+    telemetry.startSession(2, false, 1.0);
+
+    let reactionCount = 0;
+    telemetry.onReactionRecorded = () => {
+      reactionCount++;
+    };
+
+    telemetry.recordObstacleHorizon('obs_dup', 100, 0, 'train_blocker', -24);
+    telemetry.recordPlayerAction('lane', 15.0, 0.0, -4.0);
+    expect(reactionCount).toBe(1);
+
+    // Subsequent horizon checks for the same obstacle ID must be ignored
+    telemetry.recordObstacleHorizon('obs_dup', 101, 0, 'train_blocker', -23);
+    telemetry.recordPlayerAction('lane', 15.0, 0.0, -3.5);
+    expect(reactionCount).toBe(1);
+  });
+
   it('records empirical physical action counters (button presses, head tilts, hand gestures, near-misses)', () => {
     telemetry.startSession(0, false, 1.0);
 

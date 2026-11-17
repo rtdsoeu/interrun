@@ -22,6 +22,7 @@ export class CameraRig {
     // Current smoothed camera coordinates
     this.currentX = 0;
     this.currentY = this.baseHeight;
+    this._currentSlideDrop = 0;
 
     // FOV
     this.baseFOV = 62;
@@ -41,6 +42,7 @@ export class CameraRig {
   reset(playerPos = new THREE.Vector3(0, 0, 0)) {
     this.currentX = playerPos.x;
     this.currentY = this.baseHeight;
+    this._currentSlideDrop = 0;
     this.trauma = 0;
     this.currentFOV = this.baseFOV;
 
@@ -59,9 +61,10 @@ export class CameraRig {
 
     // 2. Soft vertical following:
     // Camera reacts to only ~22% of jump height — character ascends visually in frame!
-    const slideDrop = isSliding ? -0.3 : 0;
-    const targetY = this.baseHeight + Math.max(0, playerPos.y * 0.22) + slideDrop;
+    const targetSlideDrop = isSliding ? -0.3 : 0;
     const yFollowFactor = 1 - Math.exp(-6.0 * dt);
+    this._currentSlideDrop = THREE.MathUtils.lerp(this._currentSlideDrop, targetSlideDrop, yFollowFactor);
+    const targetY = this.baseHeight + Math.max(0, playerPos.y * 0.22) + this._currentSlideDrop;
     this.currentY = THREE.MathUtils.lerp(this.currentY, targetY, yFollowFactor);
 
     // 3. Smooth and safe dynamic FOV (strictly 62..70 degrees)
@@ -101,7 +104,7 @@ export class CameraRig {
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(
       playerPos.x * 0.6,
-      this.lookHeight + slideDrop * 0.2,
+      this.lookHeight + this._currentSlideDrop * 0.2,
       -this.lookDistance
     );
   }

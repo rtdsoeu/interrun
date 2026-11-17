@@ -18,6 +18,7 @@ export class TelemetryManager {
 
     // Obstacle horizon tracking for reaction time calculation
     this._pendingObstacles = new Map(); // id -> { detectedTime, distance, lane, type }
+    this._seenObstacleIds = new Set(); // prevents re-inserting already consumed obstacle IDs
     this._reactionSamples = []; // { stage, deltaMs }
 
     // Event hooks for adaptive managers (e.g. AdaptiveDifficultyManager)
@@ -66,6 +67,7 @@ export class TelemetryManager {
   startSession(initialStage = 0, isLocked = false, speedMultiplier = 1.0) {
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     this._pendingObstacles.clear();
+    this._seenObstacleIds.clear();
     this._reactionSamples = [];
 
     this.currentSession = {
@@ -188,17 +190,22 @@ export class TelemetryManager {
    */
   recordObstacleHorizon(obstacleId, distance, lane, type, zPos = null) {
     if (!this.currentSession) return;
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    if (!this._pendingObstacles.has(obstacleId)) {
-      this._pendingObstacles.set(obstacleId, {
-        detectedTime: now,
-        distance,
-        lane,
-        type,
-        z: typeof zPos === 'number' ? zPos : -25,
-        stage: this.currentSession.currentStage
-      });
+    if (this._seenObstacleIds.has(obstacleId)) return;
+    this._seenObstacleIds.add(obstacleId);
+    if (this._seenObstacleIds.size > 300) {
+      const oldest = this._seenObstacleIds.values().next().value;
+      this._seenObstacleIds.delete(oldest);
     }
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    this._pendingObstacles.set(obstacleId, {
+      detectedTime: now,
+      distance,
+      lane,
+      type,
+      z: typeof zPos === 'number' ? zPos : -25,
+      stage: this.currentSession.currentStage
+    });
   }
 
   /**

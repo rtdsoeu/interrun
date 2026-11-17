@@ -66,6 +66,7 @@ export class ObstacleManager {
     // Object pools to completely prevent runtime allocations during gameplay
     this.totalDistance = 0;
     this._lastFallingHazardDist = -999;
+    this._nextSpawnId = 0;
     this._pools = {
       [ObstacleType.JUMP_BARRIER]: [],
       [ObstacleType.SLIDE_BARRIER]: [],
@@ -130,6 +131,8 @@ export class ObstacleManager {
 
   _recycleObstacle(obs) {
     this.obstacleGroup.remove(obs.mesh);
+    obs._horizonRecorded = false;
+    obs._reactionConsumed = false;
     if (obs.type === ObstacleType.FALLING_HAZARD) {
       if (obs.crateGroup) obs.crateGroup.visible = false;
       if (obs.decal) obs.decal.visible = false;
@@ -306,9 +309,12 @@ export class ObstacleManager {
     const x = lane * this.laneWidth;
     if (this._pools[ObstacleType.FALLING_HAZARD].length > 0) {
       const obs = this._pools[ObstacleType.FALLING_HAZARD].pop();
+      obs.spawnId = ++this._nextSpawnId;
       obs.lane = lane;
       obs.x = x;
       obs.passed = false;
+      obs._horizonRecorded = false;
+      obs._reactionConsumed = false;
       obs.currentY = 10.5;
       obs.fallVelocity = 0;
       obs.dropping = false;
@@ -369,6 +375,7 @@ export class ObstacleManager {
     this.obstacleGroup.add(group);
 
     this.activeObstacles.push({
+      spawnId: ++this._nextSpawnId,
       type: ObstacleType.FALLING_HAZARD,
       mesh: group,
       crateGroup,
@@ -385,7 +392,9 @@ export class ObstacleManager {
       dropping: false,
       hasLanded: false,
       box: new THREE.Box3(),
-      passed: false
+      passed: false,
+      _horizonRecorded: false,
+      _reactionConsumed: false
     });
   }
 
@@ -393,9 +402,12 @@ export class ObstacleManager {
     const x = lane * this.laneWidth;
     if (this._pools[ObstacleType.JUMP_BARRIER].length > 0) {
       const obs = this._pools[ObstacleType.JUMP_BARRIER].pop();
+      obs.spawnId = ++this._nextSpawnId;
       obs.lane = lane;
       obs.x = x;
       obs.passed = false;
+      obs._horizonRecorded = false;
+      obs._reactionConsumed = false;
       obs.mesh.position.set(x, 0, z);
       this.obstacleGroup.add(obs.mesh);
       this.activeObstacles.push(obs);
@@ -421,6 +433,7 @@ export class ObstacleManager {
     this.obstacleGroup.add(group);
 
     this.activeObstacles.push({
+      spawnId: ++this._nextSpawnId,
       type: ObstacleType.JUMP_BARRIER,
       mesh: group,
       lane,
@@ -430,7 +443,9 @@ export class ObstacleManager {
       maxY: 0.68,
       halfD: 0.3,
       box: new THREE.Box3(),
-      passed: false
+      passed: false,
+      _horizonRecorded: false,
+      _reactionConsumed: false
     });
   }
 
@@ -438,9 +453,12 @@ export class ObstacleManager {
     const x = lane * this.laneWidth;
     if (this._pools[ObstacleType.SLIDE_BARRIER].length > 0) {
       const obs = this._pools[ObstacleType.SLIDE_BARRIER].pop();
+      obs.spawnId = ++this._nextSpawnId;
       obs.lane = lane;
       obs.x = x;
       obs.passed = false;
+      obs._horizonRecorded = false;
+      obs._reactionConsumed = false;
       obs.mesh.position.set(x, 0, z);
       this.obstacleGroup.add(obs.mesh);
       this.activeObstacles.push(obs);
@@ -466,6 +484,7 @@ export class ObstacleManager {
     this.obstacleGroup.add(group);
 
     this.activeObstacles.push({
+      spawnId: ++this._nextSpawnId,
       type: ObstacleType.SLIDE_BARRIER,
       mesh: group,
       lane,
@@ -475,7 +494,9 @@ export class ObstacleManager {
       maxY: 2.2,
       halfD: 0.3,
       box: new THREE.Box3(),
-      passed: false
+      passed: false,
+      _horizonRecorded: false,
+      _reactionConsumed: false
     });
   }
 
@@ -483,9 +504,12 @@ export class ObstacleManager {
     const x = lane * this.laneWidth;
     if (this._pools[ObstacleType.TRAIN_BLOCKER].length > 0) {
       const obs = this._pools[ObstacleType.TRAIN_BLOCKER].pop();
+      obs.spawnId = ++this._nextSpawnId;
       obs.lane = lane;
       obs.x = x;
       obs.passed = false;
+      obs._horizonRecorded = false;
+      obs._reactionConsumed = false;
       obs.mesh.position.set(x, 0, z);
       this.obstacleGroup.add(obs.mesh);
       this.activeObstacles.push(obs);
@@ -511,6 +535,7 @@ export class ObstacleManager {
     this.obstacleGroup.add(group);
 
     this.activeObstacles.push({
+      spawnId: ++this._nextSpawnId,
       type: ObstacleType.TRAIN_BLOCKER,
       mesh: group,
       lane,
@@ -520,7 +545,9 @@ export class ObstacleManager {
       maxY: 2.8,
       halfD: 2.6,
       box: new THREE.Box3(),
-      passed: false
+      passed: false,
+      _horizonRecorded: false,
+      _reactionConsumed: false
     });
   }
 

@@ -5,6 +5,7 @@ scratch
 *.docx
 *.txt
 *.md
+!README.md
 # Logs
 logs
 *.log

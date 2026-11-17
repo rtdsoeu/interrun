@@ -77,9 +77,6 @@ export class Engine {
     this.runner = new Runner(this.scene, this.soundFx);
     this.track = new Track(this.scene, this.skinManager);
     this.obstacleManager = new ObstacleManager(this.scene, this.skinManager, this.soundFx);
-    this.obstacleManager.onHazardLanded = () => {
-      if (this.cameraRig) this.cameraRig.addTrauma(0.25);
-    };
     this.scoreSystem = new ScoreSystem();
 
     // 5. Control plugins
@@ -92,7 +89,6 @@ export class Engine {
       const res = this.adaptiveDifficulty.recordReaction(ttcMs, stage, currentSpeed || this.scoreSystem?.speed, actionType, distAhead);
       if (res?.isNearMiss) {
         this.soundFx?.playNearMiss?.();
-        this.cameraRig?.addTrauma?.(0.12);
         this.scoreSystem?.addNearMiss?.();
         this.telemetry?.recordNearMiss?.();
         this.hud?.showToast?.(`🔥 NEAR-MISS! +150 (${res.distanceMeters}m)`, '#00e5ff');
@@ -667,32 +663,46 @@ export class Engine {
       this.controlManager.update(dt);
       const input = this.controlManager.consume();
 
+      const prevLane = this.runner.currentLane;
+      const prevState = this.runner.state;
+
       // Execute runner gameplay actions immediately (zero latency, immune to telemetry/audio exceptions)
       this.runner.handleInput(input);
 
-      // Async/non-blocking telemetry & DDA reaction recording
-      if (input.laneDelta !== 0 || input.targetLane !== undefined || input.jump || input.slide || input.isDucking) {
+      const didChangeLane = this.runner.currentLane !== prevLane;
+      const didStartJump = this.runner.state === PlayerState.JUMPING && prevState !== PlayerState.JUMPING;
+      const didStartSlide = this.runner.state === PlayerState.SLIDING && prevState !== PlayerState.SLIDING;
+
+      // Async/non-blocking telemetry & DDA reaction recording (only on actual evasive transitions)
+      if (didChangeLane || didStartJump || didStartSlide) {
         try {
-          // Find nearest oncoming obstacle in front of runner to calculate physical Time-To-Collision (TTC)
+          // Find nearest oncoming obstacle in the lane actually being evaded
+          const evadedLane = didChangeLane ? prevLane : this.runner.currentLane;
+          let nearestObs = null;
           let nearestObsZ = null;
           let minAhead = Infinity;
           if (this.obstacleManager?.activeObstacles) {
             for (let i = 0; i < this.obstacleManager.activeObstacles.length; i++) {
               const obs = this.obstacleManager.activeObstacles[i];
-              if (!obs?.mesh) continue;
+              if (!obs?.mesh || obs.passed || obs._reactionConsumed) continue;
+              if (obs.lane !== evadedLane) continue;
               const distAhead = this.runner.pos.z - obs.mesh.position.z;
               if (distAhead > 0 && distAhead < minAhead) {
                 minAhead = distAhead;
+                nearestObs = obs;
                 nearestObsZ = obs.mesh.position.z;
               }
             }
           }
-          this.telemetry?.recordPlayerAction(
-            input.jump ? 'jump' : (input.slide || input.isDucking ? 'slide' : 'lane'),
-            speed,
-            this.runner.pos.z,
-            nearestObsZ
-          );
+          if (nearestObs && nearestObsZ !== null) {
+            nearestObs._reactionConsumed = true;
+            this.telemetry?.recordPlayerAction(
+              didStartJump ? 'jump' : (didStartSlide ? 'slide' : 'lane'),
+              speed,
+              this.runner.pos.z,
+              nearestObsZ
+            );
+          }
         } catch (telemetryErr) {
           console.warn('[Engine] Telemetry recordPlayerAction failed:', telemetryErr);
         }
@@ -721,10 +731,12 @@ export class Engine {
       if (this.obstacleManager?.activeObstacles) {
         for (let i = 0; i < this.obstacleManager.activeObstacles.length; i++) {
           const obs = this.obstacleManager.activeObstacles[i];
-          if (!obs?.mesh) continue;
+          if (!obs?.mesh || obs._horizonRecorded) continue;
           const relZ = obs.mesh.position.z - this.runner.pos.z;
           if (relZ <= -18 && relZ >= -28) {
-            this.telemetry?.recordObstacleHorizon(obs.mesh.uuid || i, this.scoreSystem.distance, obs.lane, obs.type, obs.mesh.position.z);
+            obs._horizonRecorded = true;
+            const obsId = obs.spawnId !== undefined ? `obs_${obs.spawnId}` : (obs.mesh.uuid || i);
+            this.telemetry?.recordObstacleHorizon(obsId, this.scoreSystem.distance, obs.lane, obs.type, obs.mesh.position.z);
           }
         }
       }
