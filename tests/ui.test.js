@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { getHUDHtml } from '../src/ui/HudTemplates.js';
 import { translations } from '../src/i18n/Translations.js';
 
@@ -9,6 +9,7 @@ describe('UI Templates (getHUDHtml)', () => {
   it('renders getHUDHtml without errors with default empty state', () => {
     const html = getHUDHtml(dummyT, dummyI18n, {});
     expect(html).toContain('id="hud"');
+    expect(html).toContain('id="hud-toast"');
     expect(html).toContain('id="hud-bottom-left"');
     expect(html).toContain('id="hud-fps"');
     expect(html).toContain('id="hud-cv-panel"');
@@ -412,6 +413,36 @@ describe('HUD Class Logic', () => {
       expect(getEl('death-dist').textContent).toBe(120);
     } finally {
       globalThis.document = origDoc;
+    }
+  });
+
+  it('displays and auto-hides near-miss toast notifications via showToast', async () => {
+    vi.useFakeTimers();
+    const { Hud } = await import('../src/ui/Hud.js');
+    const { mockDoc, getEl } = setupMockDocument();
+    const origDoc = globalThis.document;
+    globalThis.document = mockDoc;
+
+    try {
+      const hud = new Hud({ innerHTML: '' }, null, null, null);
+      hud.showToast('🔥 NEAR-MISS! +150 (3.2m)', '#00e5ff', 1200);
+
+      const toastEl = getEl('hud-toast');
+      expect(toastEl.textContent).toBe('🔥 NEAR-MISS! +150 (3.2m)');
+      expect(toastEl.style.color).toBe('#00e5ff');
+      expect(toastEl.classList.contains('visible')).toBe(true);
+
+      vi.advanceTimersByTime(1200);
+      expect(toastEl.classList.contains('visible')).toBe(false);
+
+      // Showing again and clearing via hideToast
+      hud.showToast('🔥 NEAR-MISS! +150 (2.1m)', '#ff3d5e', 1500);
+      expect(toastEl.classList.contains('visible')).toBe(true);
+      hud.hideToast();
+      expect(toastEl.classList.contains('visible')).toBe(false);
+    } finally {
+      globalThis.document = origDoc;
+      vi.useRealTimers();
     }
   });
 });

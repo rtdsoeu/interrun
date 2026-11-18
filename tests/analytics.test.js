@@ -109,6 +109,23 @@ describe('TelemetryManager', () => {
     expect(reactionCount).toBe(1);
   });
 
+  it('records direct obstacle evasion even when horizon queue is empty and for ultra-close near-misses', () => {
+    telemetry.startSession(0, false, 1.0);
+
+    let recorded = null;
+    telemetry.onReactionRecorded = (data) => {
+      recorded = data;
+    };
+
+    // Ultra-close near-miss: 0.75m ahead at 15 m/s -> TTC = 50ms
+    telemetry.recordPlayerAction('lane', 15.0, 0.0, -0.75, 'obs_direct_1');
+
+    expect(recorded).not.toBeNull();
+    expect(recorded.ttcMs).toBe(50);
+    expect(recorded.distAhead).toBe(0.75);
+    expect(recorded.stage).toBe(0);
+  });
+
   it('records empirical physical action counters (button presses, head tilts, hand gestures, near-misses)', () => {
     telemetry.startSession(0, false, 1.0);
 
@@ -592,6 +609,69 @@ describe('BenchmarkCameraPreview', () => {
 
     preview.stop();
     expect(preview._isRunning).toBe(false);
+  });
+
+  it('respects pipMode setting in benchmark preview rendering (hides video and shows points in minimal mode)', async () => {
+    const { BenchmarkCameraPreview } = await import('../src/analytics/BenchmarkCameraPreview.js');
+
+    let drawImageCalled = false;
+    let fillRectCalls = [];
+    let arcCalls = 0;
+
+    const mockCanvas = {
+      width: 320,
+      height: 240,
+      getContext: () => ({
+        clearRect: () => {},
+        fillRect: (x, y, w, h) => { fillRectCalls.push({ x, y, w, h }); },
+        fillText: () => {},
+        drawImage: () => { drawImageCalled = true; },
+        save: () => {},
+        restore: () => {},
+        setTransform: () => {},
+        beginPath: () => {},
+        arc: () => { arcCalls++; },
+        fill: () => {},
+        stroke: () => {},
+        setLineDash: () => {},
+        moveTo: () => {},
+        lineTo: () => {}
+      })
+    };
+
+    const mockWrap = { style: { display: 'none' } };
+
+    const mockVm = {
+      video: { readyState: 4 },
+      settings: { pipMode: 'minimal' },
+      currentState: {
+        points: [
+          { x: 0.5, y: 0.5, color: '#00ff88', r: 4 },
+          { x: 0.6, y: 0.7, color: '#00e5ff', r: 4 }
+        ]
+      }
+    };
+
+    const preview = new BenchmarkCameraPreview(mockCanvas, mockWrap, mockVm);
+    expect(preview.getPipMode()).toBe('minimal');
+
+    // Render frame in minimal mode
+    preview._render(100);
+
+    // In minimal mode: video is NOT drawn, background is filled with dark color, and points are drawn
+    expect(drawImageCalled).toBe(false);
+    expect(fillRectCalls.length).toBeGreaterThan(0);
+    expect(arcCalls).toBe(2);
+
+    // Switch to full mode
+    mockVm.settings.pipMode = 'full';
+    expect(preview.getPipMode()).toBe('full');
+    drawImageCalled = false;
+    preview._lastDrawTime = 0;
+    preview._render(200);
+
+    // In full mode: video drawImage IS called
+    expect(drawImageCalled).toBe(true);
   });
 });
 

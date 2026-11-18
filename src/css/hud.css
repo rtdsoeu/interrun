@@ -340,3 +340,32 @@ body:has(#touch-dpad) #hud-bottom-left {
   box-shadow: 0 0 8px var(--accent);
   width: 0%;
 }
+
+/* Transient HUD Toast (e.g. Near-Miss bonus) */
+.hud-toast {
+  position: absolute;
+  top: 108px;
+  left: 50%;
+  transform: translateX(-50%) translateY(10px) scale(0.92);
+  padding: 8px 20px;
+  border-radius: 999px;
+  background: rgba(10, 15, 30, 0.88);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--toast-color, #00e5ff);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55), 0 0 18px color-mix(in srgb, var(--toast-color, #00e5ff) 40%, transparent);
+  color: var(--toast-color, #00e5ff);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 60;
+  opacity: 0;
+  transition: opacity 0.18s ease-out, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.hud-toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+}

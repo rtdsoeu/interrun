@@ -190,17 +190,23 @@ describe('AdaptiveDifficultyManager (DDA on TTC)', () => {
       expect(style.regularityPct).toBeLessThan(70);
     });
 
-    it('detects Near-Misses on close dodges (<= 8.5m) and increments counter', () => {
-      // 320ms at 15 m/s = 4.8m -> Near-Miss!
-      const res1 = dda.recordReaction(320, 0, 15, 'lane');
+    it('detects Near-Misses on close dodges (<= 1.25m) and increments counter', () => {
+      // 80ms at 15 m/s = 1.2m -> Near-Miss!
+      const res1 = dda.recordReaction(80, 0, 15, 'lane');
       expect(res1.isNearMiss).toBe(true);
-      expect(res1.distanceMeters).toBe(4.8);
+      expect(res1.distanceMeters).toBe(1.2);
       expect(dda.nearMissCount).toBe(1);
 
-      // 1000ms at 15 m/s = 15m -> Safe dodge (not a near-miss)
-      const res2 = dda.recordReaction(1000, 0, 15, 'jump');
+      // Exact boundary 1.25m -> Near-Miss!
+      const resExact = dda.recordReaction(83, 0, 15, 'lane', 1.25);
+      expect(resExact.isNearMiss).toBe(true);
+      expect(resExact.distanceMeters).toBe(1.25);
+      expect(dda.nearMissCount).toBe(2);
+
+      // 320ms at 15 m/s = 4.8m -> Not a near-miss (above 1.25m threshold)
+      const res2 = dda.recordReaction(320, 0, 15, 'jump');
       expect(res2.isNearMiss).toBe(false);
-      expect(dda.nearMissCount).toBe(1);
+      expect(dda.nearMissCount).toBe(2);
     });
 
     it('identifies Weaver vs Acrobat maneuver preferences and generates combined RPG title', () => {

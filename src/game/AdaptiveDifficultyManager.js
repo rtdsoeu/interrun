@@ -126,8 +126,8 @@ export class AdaptiveDifficultyManager {
       return { isNearMiss: false, distanceMeters: 0, count: this.nearMissCount, bonus: 0 };
     }
 
-    // Ignore invalid anomalous samples outside physical bounds [80ms, 2500ms]
-    if (ttcMs < 80 || ttcMs > 2500) {
+    // Ignore invalid anomalous samples outside physical bounds [5ms, 2500ms]
+    if (ttcMs < 5 || ttcMs > 2500) {
       return { isNearMiss: false, distanceMeters: 0, count: this.nearMissCount, bonus: 0 };
     }
 
@@ -140,9 +140,10 @@ export class AdaptiveDifficultyManager {
     const ratio = ttcMs / targetTtc;
 
     const speed = (typeof currentSpeed === 'number' && currentSpeed > 0) ? currentSpeed : 16.0;
-    const distanceMeters = (typeof distAhead === 'number' && distAhead > 0)
-      ? Math.round(distAhead * 10) / 10
-      : Math.round(((ttcMs / 1000) * speed) * 10) / 10;
+    const rawDistanceMeters = (typeof distAhead === 'number' && distAhead > 0)
+      ? distAhead
+      : (ttcMs / 1000) * speed;
+    const distanceMeters = Math.round(rawDistanceMeters * 100) / 100;
 
     // Track maneuver preferences
     if (actionType === 'lane' || actionType === 'dodge_left' || actionType === 'dodge_right') {
@@ -153,8 +154,8 @@ export class AdaptiveDifficultyManager {
       this.slidesCount++;
     }
 
-    // Near-Miss evaluation (evasion with <= 8.5 meters margin)
-    const isNearMiss = distanceMeters <= 8.5;
+    // Near-Miss evaluation (evasion with <= 1.25 meters margin)
+    const isNearMiss = rawDistanceMeters <= 1.25;
     if (isNearMiss) {
       this.nearMissCount++;
     }

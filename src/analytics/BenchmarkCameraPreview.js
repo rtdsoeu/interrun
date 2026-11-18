@@ -91,6 +91,12 @@ export class BenchmarkCameraPreview {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
+  getPipMode() {
+    return this.visionManager?.settings?.pipMode
+      || (typeof localStorage !== 'undefined' ? localStorage.getItem('interrun_pip_mode') : null)
+      || 'full';
+  }
+
   _render(now) {
     this._resolveElements();
     if (!this.ctx || !this.canvas) return;
@@ -118,12 +124,18 @@ export class BenchmarkCameraPreview {
       return;
     }
 
-    // Draw mirrored video stream
-    ctx.save();
-    ctx.clearRect(0, 0, W, H);
-    ctx.setTransform(-1, 0, 0, 1, W, 0);
-    ctx.drawImage(video, 0, 0, W, H);
-    ctx.restore();
+    // Respect in-game PIP video display setting: show mirrored webcam video only in 'full' mode;
+    // in 'minimal' or 'off' mode, hide video and render only dark background + grid & landmark points
+    if (this.getPipMode() === 'full') {
+      ctx.save();
+      ctx.clearRect(0, 0, W, H);
+      ctx.setTransform(-1, 0, 0, 1, W, 0);
+      ctx.drawImage(video, 0, 0, W, H);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = '#080d1a';
+      ctx.fillRect(0, 0, W, H);
+    }
 
     // Render 3x3 grid overlay if testing Zone or HandZone
     if (this._stageKey === 'stage2' || this._stageKey === 'stage3') {

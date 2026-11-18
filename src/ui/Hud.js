@@ -245,6 +245,11 @@ export class Hud {
     this.elDdaState = document.getElementById('hud-dda-state');
     this.elDdaIcon = document.getElementById('hud-dda-icon');
     this.elControlHint = document.getElementById('control-hint');
+    this.elHudToast = document.getElementById('hud-toast');
+    if (this._toastTimer) {
+      clearTimeout(this._toastTimer);
+      this._toastTimer = null;
+    }
     this.elSpeedBar = document.getElementById('speed-bar-fill');
     this.elLivesRow = document.getElementById('lives-row');
     this.elGodBadge = document.getElementById('god-badge');
@@ -673,8 +678,40 @@ export class Hud {
   // SCREEN TRANSITIONS
   // ─────────────────────────────────────────────────────────────────────────
 
+  showToast(message, color = '#00e5ff', durationMs = 1500) {
+    if (!this.elHudToast) return;
+    if (this._toastTimer) {
+      clearTimeout(this._toastTimer);
+      this._toastTimer = null;
+    }
+    this.elHudToast.textContent = message;
+    this.elHudToast.style.color = color;
+    this.elHudToast.style.borderColor = color;
+    if (typeof this.elHudToast.style.setProperty === 'function') {
+      this.elHudToast.style.setProperty('--toast-color', color);
+    }
+    this.elHudToast.classList.remove('visible');
+    // Force layout reflow so rapid consecutive toasts replay the entrance animation
+    void this.elHudToast.offsetWidth;
+    this.elHudToast.classList.add('visible');
+
+    this._toastTimer = setTimeout(() => {
+      this.elHudToast?.classList.remove('visible');
+      this._toastTimer = null;
+    }, durationMs);
+  }
+
+  hideToast() {
+    if (this._toastTimer) {
+      clearTimeout(this._toastTimer);
+      this._toastTimer = null;
+    }
+    this.elHudToast?.classList.remove('visible');
+  }
+
   showMenu() {
     this.hideTransitionCountdown();
+    this.hideToast();
     this.elMenu?.classList.remove('hidden');
     this.elHud?.classList.add('hidden');
     this.elDeath?.classList.remove('show');
@@ -682,6 +719,7 @@ export class Hud {
 
   showGame() {
     this.hideTransitionCountdown();
+    this.hideToast();
     this._lastDistInt = -1;
     this._lastCoins = -1;
     this._lastSpeedPct = -1;
@@ -694,6 +732,7 @@ export class Hud {
 
   showGameOver(distance, bestScore, coins, aiSummary = null) {
     this.hideTransitionCountdown();
+    this.hideToast();
     if (this.elDeathDist) this.elDeathDist.textContent = Math.floor(distance);
     if (this.elDeathBest) this.elDeathBest.textContent = Math.floor(bestScore);
     if (this.elDeathCoins) this.elDeathCoins.textContent = coins;

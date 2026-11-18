@@ -111,6 +111,9 @@ export function getHUDHtml(t, i18n, state = {}) {
         <div id="webcam-status" style="position:absolute; bottom:3px; left:4px; right:4px; font-size:8px; font-weight:700; color:#00e5ff; text-transform:uppercase; letter-spacing:0.8px; text-shadow:0 1px 3px #000; text-align:center; padding:1px 4px; background:rgba(0,0,0,0.45); border-radius:4px; pointer-events:none;" data-i18n="hud.cam.active">${t('hud.cam.active')}</div>
       </div>
 
+      <!-- Transient HUD Toast Notification (e.g. Near-Miss bonus) -->
+      <div id="hud-toast" class="hud-toast" aria-live="polite"></div>
+
       <!-- Stage Transition Countdown Banner -->
       <div id="stage-countdown-banner" class="hidden" style="position:absolute; top:72px; left:50%; transform:translateX(-50%); z-index:50; pointer-events:none; display:flex; flex-direction:column; align-items:center;">
         <div style="background:rgba(10,15,30,0.94); border:1px solid rgba(0,229,255,0.6); box-shadow:0 8px 32px rgba(0,0,0,0.8), 0 0 24px rgba(0,229,255,0.3); border-radius:18px; padding:10px 24px; display:flex; align-items:center; gap:16px; backdrop-filter:blur(12px);">

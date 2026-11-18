@@ -215,28 +215,42 @@ export class TelemetryManager {
    * @param {number} [currentSpeed] Current runner forward speed in m/s
    * @param {number} [runnerZ] Current runner Z position (typically 0)
    * @param {number} [nearestObsZ] Optional exact Z position of nearest obstacle ahead
+   * @param {string|number} [obstacleId] Optional exact obstacle ID for direct matching
    */
-  recordPlayerAction(actionType, currentSpeed = null, runnerZ = null, nearestObsZ = null) {
-    if (!this.currentSession || this._pendingObstacles.size === 0) return;
+  recordPlayerAction(actionType, currentSpeed = null, runnerZ = null, nearestObsZ = null, obstacleId = null) {
+    if (!this.currentSession) return;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const hasLiveSpatial = typeof nearestObsZ === 'number' && typeof runnerZ === 'number' && typeof currentSpeed === 'number' && currentSpeed > 0;
 
-    // Match with the earliest unconsumed obstacle
-    let earliestKey = null;
-    let earliestTime = Infinity;
-    for (const [id, obs] of this._pendingObstacles.entries()) {
-      if (obs.detectedTime < earliestTime) {
-        earliestTime = obs.detectedTime;
-        earliestKey = id;
+    let obs = null;
+    if (obstacleId !== null && this._pendingObstacles.has(obstacleId)) {
+      obs = this._pendingObstacles.get(obstacleId);
+      this._pendingObstacles.delete(obstacleId);
+    } else if (obstacleId !== null && hasLiveSpatial) {
+      // Exact obstacle evaded with live spatial coordinates (even if not yet in horizon queue)
+      this._seenObstacleIds.add(obstacleId);
+      obs = { stage: this.currentSession.currentStage, detectedTime: now, z: nearestObsZ };
+    } else {
+      if (this._pendingObstacles.size === 0) return;
+      // Match with the earliest unconsumed obstacle
+      let earliestKey = null;
+      let earliestTime = Infinity;
+      for (const [id, pending] of this._pendingObstacles.entries()) {
+        if (pending.detectedTime < earliestTime) {
+          earliestTime = pending.detectedTime;
+          earliestKey = id;
+        }
+      }
+      if (earliestKey !== null) {
+        obs = this._pendingObstacles.get(earliestKey);
+        this._pendingObstacles.delete(earliestKey);
       }
     }
 
-    if (earliestKey !== null) {
-      const obs = this._pendingObstacles.get(earliestKey);
-      this._pendingObstacles.delete(earliestKey);
-
+    if (obs !== null) {
       let ttcMs;
       let distAhead = null;
-      if (typeof nearestObsZ === 'number' && typeof runnerZ === 'number' && typeof currentSpeed === 'number' && currentSpeed > 0) {
+      if (hasLiveSpatial) {
         // Physical TTC based on live obstacle distance ahead: TTC = (runnerZ - nearestObsZ) / speed
         distAhead = Math.max(0.1, runnerZ - nearestObsZ);
         ttcMs = Math.round((distAhead / currentSpeed) * 1000);
@@ -254,8 +268,8 @@ export class TelemetryManager {
         }
       }
 
-      // Valid physical TTC range: 80ms (extreme near-miss) to 2000ms (early safe dodge)
-      if (ttcMs >= 80 && ttcMs <= 2000) {
+      // Valid physical TTC range: 5ms (extreme near-miss) to 2000ms (early safe dodge)
+      if (ttcMs >= 5 && ttcMs <= 2000) {
         const record = this.currentSession.stages[obs.stage];
         if (record) {
           record.reactionTimesMs.push(ttcMs);

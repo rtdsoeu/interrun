@@ -89,6 +89,7 @@ export class Engine {
       const res = this.adaptiveDifficulty.recordReaction(ttcMs, stage, currentSpeed || this.scoreSystem?.speed, actionType, distAhead);
       if (res?.isNearMiss) {
         this.soundFx?.playNearMiss?.();
+        this.cameraRig?.addTrauma?.(0.12);
         this.scoreSystem?.addNearMiss?.();
         this.telemetry?.recordNearMiss?.();
         this.hud?.showToast?.(`🔥 NEAR-MISS! +150 (${res.distanceMeters}m)`, '#00e5ff');
@@ -681,26 +682,31 @@ export class Engine {
           let nearestObs = null;
           let nearestObsZ = null;
           let minAhead = Infinity;
+          const maxReactionDist = Math.max(28, speed * 2.1);
           if (this.obstacleManager?.activeObstacles) {
             for (let i = 0; i < this.obstacleManager.activeObstacles.length; i++) {
               const obs = this.obstacleManager.activeObstacles[i];
               if (!obs?.mesh || obs.passed || obs._reactionConsumed) continue;
               if (obs.lane !== evadedLane) continue;
-              const distAhead = this.runner.pos.z - obs.mesh.position.z;
-              if (distAhead > 0 && distAhead < minAhead) {
+              // Measure clearance to the obstacle's leading edge (closest face to the runner)
+              const frontZ = obs.mesh.position.z + (obs.halfD || 0);
+              const distAhead = this.runner.pos.z - frontZ;
+              if (distAhead > 0 && distAhead <= maxReactionDist && distAhead < minAhead) {
                 minAhead = distAhead;
                 nearestObs = obs;
-                nearestObsZ = obs.mesh.position.z;
+                nearestObsZ = frontZ;
               }
             }
           }
           if (nearestObs && nearestObsZ !== null) {
             nearestObs._reactionConsumed = true;
+            const obsId = nearestObs.spawnId !== undefined ? `obs_${nearestObs.spawnId}` : (nearestObs.mesh.uuid || null);
             this.telemetry?.recordPlayerAction(
               didStartJump ? 'jump' : (didStartSlide ? 'slide' : 'lane'),
               speed,
               this.runner.pos.z,
-              nearestObsZ
+              nearestObsZ,
+              obsId
             );
           }
         } catch (telemetryErr) {

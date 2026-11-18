@@ -137,7 +137,7 @@ export const translations = {
   'death.actions.dist':          { en: 'Distance Covered',             uk: 'Пройдена дистанція' },
   'death.actions.dist_desc':     { en: 'meters run',                   uk: 'метрів забігу' },
   'death.actions.nearmiss':      { en: 'Last-Moment Dodges',           uk: 'Ухилення в останній момент' },
-  'death.actions.nearmiss_desc': { en: 'Near-Miss (<8.5m / <350ms)',   uk: 'впритул (<8.5м / <350мс)' },
+  'death.actions.nearmiss_desc': { en: 'Near-Miss (≤1.25m)',           uk: 'впритул (≤1.25м)' },
   'death.actions.buttons':       { en: 'Button Presses',               uk: 'Натискання кнопок' },
   'death.actions.buttons_desc':  { en: 'keyboard / touch D-pad',       uk: 'клавіатура / тач' },
   'death.actions.head':          { en: 'Head Tilts',                   uk: 'Нахили голови' },
