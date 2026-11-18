@@ -172,28 +172,46 @@ export class TelemetryUI {
     const stats = surveyManager.getStatistics();
     const susVal = document.getElementById('survey-sus-val');
     if (susVal) {
-      susVal.textContent = stats.totalResponses > 0 ? `${stats.susProxyScore} / 100 (N=${stats.totalResponses})` : '—';
+      const score = stats.susScore !== undefined ? stats.susScore : stats.susProxyScore;
+      susVal.textContent = stats.totalResponses > 0 ? `${score} / 100 (N=${stats.totalResponses})` : '—';
     }
   }
 
   saveSurveyResponse(surveyManager, telemetryManager) {
     if (!surveyManager || typeof document === 'undefined') return;
 
-    const getVal = (name) => {
+    const getVal = (name, fallback = 3) => {
       const checked = document.querySelector(`input[name="${name}"]:checked`);
-      return checked ? parseInt(checked.value, 10) : 3;
+      return checked ? parseInt(checked.value, 10) : fallback;
     };
 
-    const fatigue = getVal('survey-fatigue');
-    const responsiveness = getVal('survey-resp');
-    const transition = getVal('survey-trans');
-    const satisfaction = getVal('survey-sat');
+    const answers = [];
+    for (let i = 1; i <= 10; i++) {
+      answers.push(getVal(`survey-q${i}`, 3));
+    }
+
+    // Support legacy field elements if present
+    const fatigue = getVal('survey-fatigue', answers[7]);
+    const responsiveness = getVal('survey-resp', answers[2]);
+    const transition = getVal('survey-trans', answers[4]);
+    const satisfaction = getVal('survey-sat', answers[0]);
     const comment = document.getElementById('survey-user-comment')?.value || '';
 
     const sessionCount = telemetryManager?.getHistory().length || 1;
     const bestDist = parseInt(typeof localStorage !== 'undefined' ? (localStorage.getItem('interrun_best') || '0') : '0', 10);
 
     surveyManager.submitSurvey({
+      q1: answers[0],
+      q2: answers[1],
+      q3: answers[2],
+      q4: answers[3],
+      q5: answers[4],
+      q6: answers[5],
+      q7: answers[6],
+      q8: answers[7],
+      q9: answers[8],
+      q10: answers[9],
+      answers,
       fatigue,
       responsiveness,
       transition,

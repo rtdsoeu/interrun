@@ -311,6 +311,40 @@ describe('SurveyManager', () => {
     expect(csv).toContain('Fatigue_1to5,Responsiveness_1to5');
     expect(csv).toContain('Very intuitive controls!');
   });
+
+  it('records 10-item canonical SUS and calculates standard Brooke score', () => {
+    // Exact answers matching Table 6.6
+    survey.submitSurvey({
+      answers: [4.42, 1.75, 4.50, 1.42, 4.33, 1.83, 4.58, 1.67, 4.17, 1.58],
+      comment: 'Excellent multimodal control'
+    }, 7, 2500);
+
+    const stats = survey.getStatistics();
+    expect(stats.totalResponses).toBe(1);
+    expect(stats.susScore).toBeCloseTo(84.4, 0.5);
+    expect(stats.meanQuestions.length).toBe(10);
+    expect(stats.meanQuestions[0]).toBe(4.42);
+    expect(stats.meanQuestions[1]).toBe(1.75);
+
+    const csv = survey.exportToCsv();
+    expect(csv).toContain('Q1,Q2,Q3,Q4,Q5,Q6,Q7,Q8,Q9,Q10,SUS_Score');
+    expect(csv).toContain('Excellent multimodal control');
+  });
+
+  it('calculates perfect 100 and minimal 0 SUS scores correctly', () => {
+    // Perfect score: 5 on odd, 1 on even
+    survey.submitSurvey({
+      answers: [5, 1, 5, 1, 5, 1, 5, 1, 5, 1]
+    });
+    expect(survey.getStatistics().susScore).toBe(100);
+
+    survey.clearResponses();
+    // Worst score: 1 on odd, 5 on even
+    survey.submitSurvey({
+      answers: [1, 5, 1, 5, 1, 5, 1, 5, 1, 5]
+    });
+    expect(survey.getStatistics().susScore).toBe(0);
+  });
 });
 
 describe('HUD Telemetry Modal Integration', () => {

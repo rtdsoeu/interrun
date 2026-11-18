@@ -768,64 +768,32 @@ export function getHUDHtml(t, i18n, state = {}) {
           <div style="font-size:12px; color:rgba(255,255,255,0.7); line-height:1.5;" data-i18n="telemetry.survey.desc">
             ${t('telemetry.survey.desc')}
           </div>
+          <div style="font-size:11px; color:#00ff88; background:rgba(0,255,136,0.06); border:1px solid rgba(0,255,136,0.15); border-radius:6px; padding:6px 10px;" data-i18n="telemetry.survey.scale_legend">
+            ${t('telemetry.survey.scale_legend')}
+          </div>
 
-          <!-- Questions Form -->
-          <form id="telemetry-survey-form" style="display:flex; flex-direction:column; gap:10px;">
-            <!-- Q1 -->
-            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px;">
-              <div style="font-size:11px; margin-bottom:6px;" data-i18n="telemetry.survey.q_fatigue">${t('telemetry.survey.q_fatigue')}</div>
-              <div style="display:flex; justify-content:space-between; font-size:11px;">
-                <label><input type="radio" name="survey-fatigue" value="1"> 1 (${t('telemetry.survey.no')})</label>
-                <label><input type="radio" name="survey-fatigue" value="2"> 2</label>
-                <label><input type="radio" name="survey-fatigue" value="3" checked> 3</label>
-                <label><input type="radio" name="survey-fatigue" value="4"> 4</label>
-                <label><input type="radio" name="survey-fatigue" value="5"> 5 (${t('telemetry.survey.yes')})</label>
+          <!-- Questions Form (SUS 10 Canonical Questions) -->
+          <form id="telemetry-survey-form" style="display:flex; flex-direction:column; gap:8px;">
+            ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => `
+            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:7px 12px;">
+              <div style="font-size:11px; margin-bottom:5px; color:#e2e8f0; font-weight:500;" data-i18n="telemetry.survey.q${i}">${t(`telemetry.survey.q${i}`)}</div>
+              <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px;">
+                <label style="cursor:pointer; display:flex; align-items:center; gap:3px;"><input type="radio" name="survey-q${i}" value="1"> 1 <span style="font-size:9px; color:rgba(255,255,255,0.4);">(−)</span></label>
+                <label style="cursor:pointer; display:flex; align-items:center; gap:3px;"><input type="radio" name="survey-q${i}" value="2"> 2</label>
+                <label style="cursor:pointer; display:flex; align-items:center; gap:3px;"><input type="radio" name="survey-q${i}" value="3" checked> 3</label>
+                <label style="cursor:pointer; display:flex; align-items:center; gap:3px;"><input type="radio" name="survey-q${i}" value="4"> 4</label>
+                <label style="cursor:pointer; display:flex; align-items:center; gap:3px;"><input type="radio" name="survey-q${i}" value="5"> 5 <span style="font-size:9px; color:rgba(255,255,255,0.4);">(+)</span></label>
               </div>
             </div>
-
-            <!-- Q2 -->
-            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px;">
-              <div style="font-size:11px; margin-bottom:6px;" data-i18n="telemetry.survey.q_resp">${t('telemetry.survey.q_resp')}</div>
-              <div style="display:flex; justify-content:space-between; font-size:11px;">
-                <label><input type="radio" name="survey-resp" value="1"> 1</label>
-                <label><input type="radio" name="survey-resp" value="2"> 2</label>
-                <label><input type="radio" name="survey-resp" value="3"> 3</label>
-                <label><input type="radio" name="survey-resp" value="4" checked> 4</label>
-                <label><input type="radio" name="survey-resp" value="5"> 5</label>
-              </div>
-            </div>
-
-            <!-- Q3 -->
-            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px;">
-              <div style="font-size:11px; margin-bottom:6px;" data-i18n="telemetry.survey.q_trans">${t('telemetry.survey.q_trans')}</div>
-              <div style="display:flex; justify-content:space-between; font-size:11px;">
-                <label><input type="radio" name="survey-trans" value="1"> 1</label>
-                <label><input type="radio" name="survey-trans" value="2"> 2</label>
-                <label><input type="radio" name="survey-trans" value="3"> 3</label>
-                <label><input type="radio" name="survey-trans" value="4" checked> 4</label>
-                <label><input type="radio" name="survey-trans" value="5"> 5</label>
-              </div>
-            </div>
-
-            <!-- Q4 -->
-            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px;">
-              <div style="font-size:11px; margin-bottom:6px;" data-i18n="telemetry.survey.q_sat">${t('telemetry.survey.q_sat')}</div>
-              <div style="display:flex; justify-content:space-between; font-size:11px;">
-                <label><input type="radio" name="survey-sat" value="1"> 1</label>
-                <label><input type="radio" name="survey-sat" value="2"> 2</label>
-                <label><input type="radio" name="survey-sat" value="3"> 3</label>
-                <label><input type="radio" name="survey-sat" value="4"> 4</label>
-                <label><input type="radio" name="survey-sat" value="5" checked> 5</label>
-              </div>
-            </div>
+            `).join('')}
 
             <!-- Comment -->
-            <textarea id="survey-user-comment" placeholder="${t('telemetry.survey.comment')}" style="width:100%; height:46px; background:#182030; color:#fff; border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:6px 10px; font-size:11px; resize:none;"></textarea>
+            <textarea id="survey-user-comment" placeholder="${t('telemetry.survey.comment')}" style="width:100%; height:46px; background:#182030; color:#fff; border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:6px 10px; font-size:11px; resize:none; margin-top:4px;"></textarea>
 
             <!-- Submit Button & Stats -->
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
               <div style="font-size:11px; color:rgba(255,255,255,0.7);">
-                <span data-i18n="telemetry.survey.sus_proxy">${t('telemetry.survey.sus_proxy')}</span> <strong id="survey-sus-val" style="color:#00ff88;">--</strong>
+                <span data-i18n="telemetry.survey.sus_score">${t('telemetry.survey.sus_score')}</span> <strong id="survey-sus-val" style="color:#00ff88; font-size:13px;">--</strong>
               </div>
               <button type="button" id="btn-survey-save" class="btn btn-primary" style="padding:8px 20px; font-size:12px;" data-i18n="telemetry.survey.submit">
                 ${t('telemetry.survey.submit')}
